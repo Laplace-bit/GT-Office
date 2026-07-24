@@ -36,6 +36,36 @@ test('right-side station dragging uses the Pointer path rather than competing HT
   assert.doesNotMatch(workbenchPanel, /onDragOver=/)
 })
 
+test('floating terminal movement previews on the compositor and commits when the pointer is released', () => {
+  const workbenchCanvas = readSource('features/workspace-hub/WorkbenchCanvas.tsx')
+  const workbenchStyle = readSource('features/workspace-hub/WorkbenchCanvas.scss')
+
+  assert.match(workbenchCanvas, /applyFloatingFramePreview/)
+  assert.match(workbenchCanvas, /window\.requestAnimationFrame/)
+  assert.match(
+    workbenchCanvas,
+    /onMoveFloatingContainer\(interaction\.containerId, \{ x: previewFrame\.x, y: previewFrame\.y \}\)/,
+  )
+  assert.match(
+    workbenchStyle,
+    /transform: translate3d\(var\(--workbench-floating-x\), var\(--workbench-floating-y\), 0\)/,
+  )
+  assert.match(workbenchStyle, /is-floating-settled/)
+})
+
+test('station drag exposes source, insertion, and completion feedback', () => {
+  const stationCard = readSource('features/workspace-hub/StationCard.tsx')
+  const stationCardStyle = readSource('features/workspace-hub/StationCard.scss')
+  const workbenchPanel = readSource('features/workspace-hub/WorkbenchCanvasPanel.tsx')
+
+  assert.match(stationCard, /isDragSource\s+\?\s+'is-drag-source'/)
+  assert.match(stationCard, /dropPlacement \? `is-drop-\$\{dropPlacement\}`/)
+  assert.match(stationCard, /dropCompleted \? 'is-drop-complete'/)
+  assert.match(workbenchPanel, /stationDropAnchorId/)
+  assert.match(stationCardStyle, /is-drop-before::before/)
+  assert.match(stationCardStyle, /station-card-drop-complete/)
+})
+
 test('primary station launch keeps mouse focus available for the terminal', () => {
   const stationCard = readSource('features/workspace-hub/StationCard.tsx')
 

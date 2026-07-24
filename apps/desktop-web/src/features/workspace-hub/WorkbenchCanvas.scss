@@ -179,10 +179,80 @@
 
 .workbench-floating-shell {
   position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--workbench-floating-width);
+  height: var(--workbench-floating-height);
   min-width: min(rem(520), calc(100vw - rem(32)));
   min-height: rem(300);
   pointer-events: auto;
   z-index: var(--floating-layer-z, 1200);
+  transform: translate3d(var(--workbench-floating-x), var(--workbench-floating-y), 0);
+  transition: filter 160ms var(--vb-ease-smooth);
+
+  &::after {
+    content: '';
+    position: absolute;
+    z-index: 12;
+    inset: rem(-3);
+    border: rem(1) solid transparent;
+    border-radius: rem(25);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &.is-floating-dragging,
+  &.is-floating-resizing {
+    will-change: transform;
+
+    &::after {
+      border-color: color-mix(in srgb, var(--vb-accent) 58%, transparent);
+      opacity: 1;
+    }
+
+    .workbench-canvas {
+      box-shadow:
+        0 rem(24) rem(56) color-mix(in srgb, black 28%, transparent),
+        0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 42%, transparent);
+    }
+  }
+
+  &.is-floating-dragging {
+    .workbench-canvas {
+      transform: translateY(rem(-1));
+    }
+
+    .canvas-header {
+      cursor: grabbing;
+    }
+  }
+
+  &.is-floating-settled::after {
+    animation: workbench-floating-settle 167ms var(--vb-ease-smooth);
+  }
+}
+
+@keyframes workbench-floating-settle {
+  0% {
+    border-color: color-mix(in srgb, var(--vb-accent) 72%, transparent);
+    box-shadow: 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 28%, transparent);
+    opacity: 0.2;
+    transform: scale(0.992);
+  }
+
+  48% {
+    border-color: color-mix(in srgb, var(--vb-accent) 54%, transparent);
+    box-shadow: 0 0 0 rem(5) color-mix(in srgb, var(--vb-accent) 13%, transparent);
+    opacity: 1;
+    transform: scale(1.006);
+  }
+
+  100% {
+    border-color: color-mix(in srgb, var(--vb-accent) 12%, transparent);
+    box-shadow: 0 0 0 rem(8) color-mix(in srgb, var(--vb-accent) 0%, transparent);
+    opacity: 0;
+    transform: scale(1.012);
+  }
 }
 
 .workbench-floating-resize-handle {
@@ -1204,6 +1274,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workbench-floating-shell {
+    transition: none !important;
+  }
+
+  .workbench-floating-shell::after {
+    animation: none !important;
+  }
+
   .station-taskbar-ghost,
   .canvas-utility-action,
   .workbench-canvas,

@@ -33,6 +33,10 @@ import './WorkbenchCanvas.scss'
 
 interface FloatingCanvasStyle extends CSSProperties {
   '--floating-layer-z'?: string
+  '--workbench-floating-x'?: string
+  '--workbench-floating-y'?: string
+  '--workbench-floating-width'?: string
+  '--workbench-floating-height'?: string
 }
 
 interface DockGridStyle extends CSSProperties {
@@ -52,6 +56,8 @@ type FloatingInteractionState =
       startX: number
       startY: number
       frame: WorkbenchContainerFrame
+      previewFrame: WorkbenchContainerFrame
+      active: boolean
     }
   | {
       kind: 'resize'
@@ -61,6 +67,8 @@ type FloatingInteractionState =
       startX: number
       startY: number
       frame: WorkbenchContainerFrame
+      previewFrame: WorkbenchContainerFrame
+      active: boolean
     }
 
 interface StationPointerDragState {
@@ -75,6 +83,16 @@ interface StationDropTarget {
   containerId: string
   anchorStationId: string | null
   placement: 'before' | 'after'
+}
+
+interface FloatingInteractionPresentation {
+  containerId: string
+  kind: FloatingInteractionState['kind']
+}
+
+interface StationDragPresentation {
+  stationId: string
+  target: StationDropTarget | null
 }
 
 interface WorkbenchCanvasProps {
@@ -235,16 +253,68 @@ function buildFloatingCanvasStyle(
   const fallbackHeight = window.innerHeight
   const frame = container.frame ?? { x: 0.08, y: 0.08, width: 0.44, height: 0.52 }
   return {
-    left: `${fallbackWidth * frame.x}px`,
-    top: `${fallbackHeight * frame.y}px`,
-    width: `${fallbackWidth * frame.width}px`,
-    height: `${fallbackHeight * frame.height}px`,
     '--floating-layer-z': String(zIndex),
+    '--workbench-floating-x': `${fallbackWidth * frame.x}px`,
+    '--workbench-floating-y': `${fallbackHeight * frame.y}px`,
+    '--workbench-floating-width': `${fallbackWidth * frame.width}px`,
+    '--workbench-floating-height': `${fallbackHeight * frame.height}px`,
   }
 }
 
-function resolveFloatingInteractionRect(_surfaceRect: DOMRect | null): DOMRect {
+function resolveFloatingInteractionRect(): DOMRect {
   return new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+}
+
+function applyFloatingFramePreview(
+  element: HTMLElement | undefined,
+  rect: DOMRect,
+  frame: WorkbenchContainerFrame,
+) {
+  if (!element) {
+    return
+  }
+  element.style.setProperty('--workbench-floating-x', `${rect.width * frame.x}px`)
+  element.style.setProperty('--workbench-floating-y', `${rect.height * frame.y}px`)
+  element.style.setProperty('--workbench-floating-width', `${rect.width * frame.width}px`)
+  element.style.setProperty('--workbench-floating-height', `${rect.height * frame.height}px`)
+}
+
+function resolveFloatingPreviewFrame(
+  interaction: FloatingInteractionState,
+  clientX: number,
+  clientY: number,
+): WorkbenchContainerFrame {
+  const deltaX = (clientX - interaction.startX) / Math.max(1, interaction.rect.width)
+  const deltaY = (clientY - interaction.startY) / Math.max(1, interaction.rect.height)
+  if (interaction.kind === 'drag') {
+    const position = clampFloatingFramePosition(interaction.frame, interaction.rect, {
+      x: interaction.frame.x + deltaX,
+      y: interaction.frame.y + deltaY,
+    })
+    return {
+      ...interaction.frame,
+      ...position,
+    }
+  }
+  return resizeFloatingFrame(interaction.frame, interaction.direction, deltaX, deltaY, interaction.rect)
+}
+
+function hasPointerCrossedDragThreshold(startX: number, startY: number, clientX: number, clientY: number): boolean {
+  return Math.abs(clientX - startX) >= 4 || Math.abs(clientY - startY) >= 4
+}
+
+function stationDropTargetsMatch(
+  left: StationDropTarget | null,
+  right: StationDropTarget | null,
+): boolean {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.containerId === right.containerId &&
+      left.anchorStationId === right.anchorStationId &&
+      left.placement === right.placement)
+  )
 }
 
 function resolveStationDropTargetAtPoint(clientX: number, clientY: number): StationDropTarget | null {
@@ -339,10 +409,20 @@ function WorkbenchCanvasView({
 }: WorkbenchCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const dockGridRef = useRef<HTMLDivElement | null>(null)
+  const floatingShellsRef = useRef(new Map<string, HTMLDivElement>())
   const floatingInteractionRef = useRef<FloatingInteractionState | null>(null)
+  const floatingPreviewAnimationFrameRef = useRef<number | null>(null)
+  const latestFloatingPointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
+  const floatingSettleTimerRef = useRef<number | null>(null)
   const stationPointerDragRef = useRef<StationPointerDragState | null>(null)
+  const stationDropCompletionTimerRef = useRef<number | null>(null)
   const [surfaceRect, setSurfaceRect] = useState<DOMRect | null>(null)
   const [dragTargetContainerId, setDragTargetContainerId] = useState<string | null>(null)
+  const [floatingInteractionPresentation, setFloatingInteractionPresentation] =
+    useState<FloatingInteractionPresentation | null>(null)
+  const [settledFloatingContainerId, setSettledFloatingContainerId] = useState<string | null>(null)
+  const [stationDragPresentation, setStationDragPresentation] = useState<StationDragPresentation | null>(null)
+  const [completedStationDropId, setCompletedStationDropId] = useState<string | null>(null)
   const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations])
   const dockedContainers = useMemo(() => containers.filter((container) => container.mode === 'docked'), [containers])
   const floatingContainers = useMemo(
@@ -388,21 +468,68 @@ function WorkbenchCanvasView({
   }, [showStage])
 
   useEffect(() => {
+    return () => {
+      if (floatingPreviewAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(floatingPreviewAnimationFrameRef.current)
+      }
+      if (floatingSettleTimerRef.current !== null) {
+        window.clearTimeout(floatingSettleTimerRef.current)
+      }
+      if (stationDropCompletionTimerRef.current !== null) {
+        window.clearTimeout(stationDropCompletionTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const cancelFloatingPreviewFrame = () => {
+      if (floatingPreviewAnimationFrameRef.current === null) {
+        return
+      }
+      window.cancelAnimationFrame(floatingPreviewAnimationFrameRef.current)
+      floatingPreviewAnimationFrameRef.current = null
+    }
+    const updateFloatingPreview = (
+      interaction: FloatingInteractionState,
+      clientX: number,
+      clientY: number,
+    ) => {
+      const previewFrame = resolveFloatingPreviewFrame(interaction, clientX, clientY)
+      interaction.previewFrame = previewFrame
+      applyFloatingFramePreview(
+        floatingShellsRef.current.get(interaction.containerId),
+        interaction.rect,
+        previewFrame,
+      )
+      return previewFrame
+    }
     const handlePointerMove = (event: PointerEvent) => {
       const stationDrag = stationPointerDragRef.current
       if (stationDrag) {
-        if (!stationDrag.active) {
-          const deltaX = Math.abs(event.clientX - stationDrag.startX)
-          const deltaY = Math.abs(event.clientY - stationDrag.startY)
-          if (deltaX >= 4 || deltaY >= 4) {
-            stationDrag.active = true
-          }
+        if (
+          !stationDrag.active &&
+          hasPointerCrossedDragThreshold(
+            stationDrag.startX,
+            stationDrag.startY,
+            event.clientX,
+            event.clientY,
+          )
+        ) {
+          stationDrag.active = true
         }
         if (stationDrag.active) {
           const target = resolveStationDropTargetAtPoint(event.clientX, event.clientY)
-          setDragTargetContainerId(
-            isMovableStationDropTarget(stationDrag, target) ? target.containerId : null,
-          )
+          const movableTarget = isMovableStationDropTarget(stationDrag, target) ? target : null
+          setDragTargetContainerId(movableTarget?.containerId ?? null)
+          setStationDragPresentation((previous) => {
+            if (
+              previous?.stationId === stationDrag.stationId &&
+              stationDropTargetsMatch(previous.target, movableTarget)
+            ) {
+              return previous
+            }
+            return { stationId: stationDrag.stationId, target: movableTarget }
+          })
         }
       }
 
@@ -410,25 +537,44 @@ function WorkbenchCanvasView({
       if (!interaction) {
         return
       }
-      const dx = (event.clientX - interaction.startX) / Math.max(1, interaction.rect.width)
-      const dy = (event.clientY - interaction.startY) / Math.max(1, interaction.rect.height)
-      if (interaction.kind === 'drag') {
-        onMoveFloatingContainer(
-          interaction.containerId,
-          clampFloatingFramePosition(interaction.frame, interaction.rect, {
-            x: interaction.frame.x + dx,
-            y: interaction.frame.y + dy,
-          }),
+      if (
+        !interaction.active &&
+        hasPointerCrossedDragThreshold(
+          interaction.startX,
+          interaction.startY,
+          event.clientX,
+          event.clientY,
         )
+      ) {
+        interaction.active = true
+        setFloatingInteractionPresentation({
+          containerId: interaction.containerId,
+          kind: interaction.kind,
+        })
+      }
+      if (!interaction.active) {
         return
       }
-      onResizeFloatingContainer(
-        interaction.containerId,
-        resizeFloatingFrame(interaction.frame, interaction.direction, dx, dy, interaction.rect),
-      )
+      latestFloatingPointerRef.current = { clientX: event.clientX, clientY: event.clientY }
+      if (floatingPreviewAnimationFrameRef.current !== null) {
+        return
+      }
+      const scheduledInteraction = interaction
+      floatingPreviewAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        floatingPreviewAnimationFrameRef.current = null
+        if (floatingInteractionRef.current !== scheduledInteraction) {
+          return
+        }
+        const latestPointer = latestFloatingPointerRef.current
+        if (!latestPointer) {
+          return
+        }
+        updateFloatingPreview(scheduledInteraction, latestPointer.clientX, latestPointer.clientY)
+      })
     }
     const clearDrag = (event?: PointerEvent, commit = true) => {
       const stationDrag = stationPointerDragRef.current
+      let completedStationId: string | null = null
       if (commit && stationDrag?.active && event) {
         const target = resolveStationDropTargetAtPoint(event.clientX, event.clientY)
         if (isMovableStationDropTarget(stationDrag, target)) {
@@ -439,11 +585,53 @@ function WorkbenchCanvasView({
             target.placement,
           )
           onSelectStation(target.containerId, stationDrag.stationId)
+          completedStationId = stationDrag.stationId
         }
       }
       stationPointerDragRef.current = null
       setDragTargetContainerId(null)
+      setStationDragPresentation(null)
+
+      if (completedStationId) {
+        if (stationDropCompletionTimerRef.current !== null) {
+          window.clearTimeout(stationDropCompletionTimerRef.current)
+        }
+        setCompletedStationDropId(completedStationId)
+        stationDropCompletionTimerRef.current = window.setTimeout(() => {
+          setCompletedStationDropId(null)
+          stationDropCompletionTimerRef.current = null
+        }, 180)
+      }
+
+      const interaction = floatingInteractionRef.current
+      cancelFloatingPreviewFrame()
+      if (interaction) {
+        if (commit && interaction.active && event) {
+          const previewFrame = updateFloatingPreview(interaction, event.clientX, event.clientY)
+          if (interaction.kind === 'drag') {
+            onMoveFloatingContainer(interaction.containerId, { x: previewFrame.x, y: previewFrame.y })
+          } else {
+            onResizeFloatingContainer(interaction.containerId, previewFrame)
+          }
+          if (floatingSettleTimerRef.current !== null) {
+            window.clearTimeout(floatingSettleTimerRef.current)
+          }
+          setSettledFloatingContainerId(interaction.containerId)
+          floatingSettleTimerRef.current = window.setTimeout(() => {
+            setSettledFloatingContainerId(null)
+            floatingSettleTimerRef.current = null
+          }, 180)
+        } else if (!commit && interaction.active) {
+          applyFloatingFramePreview(
+            floatingShellsRef.current.get(interaction.containerId),
+            interaction.rect,
+            interaction.frame,
+          )
+        }
+      }
       floatingInteractionRef.current = null
+      latestFloatingPointerRef.current = null
+      setFloatingInteractionPresentation(null)
     }
     const cancelDrag = () => {
       clearDrag(undefined, false)
@@ -489,13 +677,22 @@ function WorkbenchCanvasView({
 
   const handleFloatingDragStart = useCallback(
     (containerId: string, event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) {
+        return
+      }
       const container = containers.find((item) => item.id === containerId)
       if (!container?.frame) {
         return
       }
-      const rect = resolveFloatingInteractionRect(surfaceRect)
+      const rect = resolveFloatingInteractionRect()
       event.preventDefault()
+      event.currentTarget.setPointerCapture(event.pointerId)
       onFocusFloatingContainer(containerId)
+      if (floatingSettleTimerRef.current !== null) {
+        window.clearTimeout(floatingSettleTimerRef.current)
+        floatingSettleTimerRef.current = null
+      }
+      setSettledFloatingContainerId(null)
       floatingInteractionRef.current = {
         kind: 'drag',
         containerId,
@@ -503,9 +700,11 @@ function WorkbenchCanvasView({
         startX: event.clientX,
         startY: event.clientY,
         frame: container.frame,
+        previewFrame: container.frame,
+        active: false,
       }
     },
-    [containers, onFocusFloatingContainer, surfaceRect],
+    [containers, onFocusFloatingContainer],
   )
 
   const handleStationPointerDragStart = useCallback(
@@ -524,6 +723,7 @@ function WorkbenchCanvasView({
         active: false,
       }
       setDragTargetContainerId(null)
+      setStationDragPresentation(null)
     },
     [],
   )
@@ -537,10 +737,16 @@ function WorkbenchCanvasView({
       if (!container?.frame) {
         return
       }
-      const rect = resolveFloatingInteractionRect(surfaceRect)
+      const rect = resolveFloatingInteractionRect()
       event.preventDefault()
       event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
       onFocusFloatingContainer(containerId)
+      if (floatingSettleTimerRef.current !== null) {
+        window.clearTimeout(floatingSettleTimerRef.current)
+        floatingSettleTimerRef.current = null
+      }
+      setSettledFloatingContainerId(null)
       floatingInteractionRef.current = {
         kind: 'resize',
         containerId,
@@ -549,9 +755,11 @@ function WorkbenchCanvasView({
         startX: event.clientX,
         startY: event.clientY,
         frame: container.frame,
+        previewFrame: container.frame,
+        active: false,
       }
     },
-    [containers, onFocusFloatingContainer, surfaceRect],
+    [containers, onFocusFloatingContainer],
   )
 
   const floatingEntries = useMemo(
@@ -608,6 +816,18 @@ function WorkbenchCanvasView({
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
+                    stationDragSourceId={stationDragPresentation?.stationId ?? null}
+                    stationDropAnchorId={
+                      stationDragPresentation?.target?.containerId === container.id
+                        ? stationDragPresentation.target.anchorStationId
+                        : null
+                    }
+                    stationDropPlacement={
+                      stationDragPresentation?.target?.containerId === container.id
+                        ? stationDragPresentation.target.placement
+                        : null
+                    }
+                    stationDropCompletionId={completedStationDropId}
                     workspaceTransitioning={workspaceTransitioning}
                     scrollToStationId={scrollToStationId && container.stationIds.includes(scrollToStationId) ? scrollToStationId : null}
                     onScrollToStationHandled={onScrollToStationHandled}
@@ -668,7 +888,27 @@ function WorkbenchCanvasView({
               {floatingEntries.map(({ container, stations: containerStations, style }, index) => (
                 <div
                   key={container.id}
-                  className="workbench-floating-shell"
+                  ref={(element) => {
+                    if (element) {
+                      floatingShellsRef.current.set(container.id, element)
+                      return
+                    }
+                    floatingShellsRef.current.delete(container.id)
+                  }}
+                  className={[
+                    'workbench-floating-shell',
+                    floatingInteractionPresentation?.containerId === container.id &&
+                    floatingInteractionPresentation.kind === 'drag'
+                      ? 'is-floating-dragging'
+                      : '',
+                    floatingInteractionPresentation?.containerId === container.id &&
+                    floatingInteractionPresentation.kind === 'resize'
+                      ? 'is-floating-resizing'
+                      : '',
+                    settledFloatingContainerId === container.id ? 'is-floating-settled' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   style={style}
                   onPointerDown={() => {
                     onFocusFloatingContainer(container.id)
@@ -689,6 +929,18 @@ function WorkbenchCanvasView({
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
+                    stationDragSourceId={stationDragPresentation?.stationId ?? null}
+                    stationDropAnchorId={
+                      stationDragPresentation?.target?.containerId === container.id
+                        ? stationDragPresentation.target.anchorStationId
+                        : null
+                    }
+                    stationDropPlacement={
+                      stationDragPresentation?.target?.containerId === container.id
+                        ? stationDragPresentation.target.placement
+                        : null
+                    }
+                    stationDropCompletionId={completedStationDropId}
                     workspaceTransitioning={workspaceTransitioning}
                     minimizedDockPortalTarget={minimizedDockPortalTarget}
                     onSelectStation={onSelectStation}

@@ -86,6 +86,10 @@ interface WorkbenchCanvasPanelProps {
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   dropActive?: boolean
+  stationDragSourceId?: string | null
+  stationDropAnchorId?: string | null
+  stationDropPlacement?: 'before' | 'after' | null
+  stationDropCompletionId?: string | null
   detachedReadonly?: boolean
   workspaceTransitioning?: boolean
   scrollToStationId?: string | null
@@ -506,6 +510,10 @@ function WorkbenchCanvasPanelView({
   taskSignalByStationId,
   channelBotBindingsByStationId = {},
   dropActive = false,
+  stationDragSourceId = null,
+  stationDropAnchorId = null,
+  stationDropPlacement = null,
+  stationDropCompletionId = null,
   detachedReadonly = false,
   workspaceTransitioning = false,
   scrollToStationId = null,
@@ -1376,6 +1384,9 @@ function WorkbenchCanvasPanelView({
               Boolean(options?.focusHidden) ||
               hiddenStationAnimation?.stationId === station.id
             }
+            isDragSource={stationDragSourceId === station.id}
+            dropPlacement={stationDropAnchorId === station.id ? stationDropPlacement : null}
+            dropCompleted={stationDropCompletionId === station.id}
             draggable={!detachedReadonly}
             onStationDragPointerStart={
               onStationDragPointerStart
@@ -1439,6 +1450,10 @@ function WorkbenchCanvasPanelView({
       onResizeTerminal,
       onSendInputData,
       onStationDragPointerStart,
+      stationDragSourceId,
+      stationDropAnchorId,
+      stationDropCompletionId,
+      stationDropPlacement,
       taskSignalByStationId,
       terminalByStation,
       workspaceTransitioning,

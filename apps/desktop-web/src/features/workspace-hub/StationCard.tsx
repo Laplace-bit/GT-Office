@@ -132,6 +132,9 @@ interface StationCardProps {
   onMinimizeStation?: (stationId: string, sourceRect: DOMRect) => void
   onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
   commands?: ToolCommandSummary[]
+  isDragSource?: boolean
+  dropPlacement?: 'before' | 'after' | null
+  dropCompleted?: boolean
   draggable?: boolean
   onStationDragPointerStart?: (event: ReactPointerEvent<HTMLElement>, stationId: string) => void
 }
@@ -167,6 +170,9 @@ function StationCardView({
   onMinimizeStation,
   onRunAction,
   commands = [],
+  isDragSource = false,
+  dropPlacement = null,
+  dropCompleted = false,
   draggable = false,
   onStationDragPointerStart,
 }: StationCardProps) {
@@ -459,6 +465,9 @@ function StationCardView({
         compactLayout ? 'station-window-compact' : '',
         isFullscreen ? 'fullscreen' : '',
         isFullscreenMode && !isFullscreen ? 'background-hidden' : '',
+        isDragSource ? 'is-drag-source' : '',
+        dropPlacement ? `is-drop-${dropPlacement}` : '',
+        dropCompleted ? 'is-drop-complete' : '',
       ]
         .filter(Boolean)
         .join(' ')}
