@@ -1,3 +1,91 @@
+## v0.7.3 (2026-07-24)
+
+- 277dbe6 Hide business designer nav entry from activity rail
+- 1a0ad0f Fix terminal startup input state
+- f9e81c2 Merge branch 'dependency-allowlist-sync'
+- 848a722 fix: activate station before terminal launch
+- b61b8cf Remove agent roles and role routing
+- b5d17d5 feat: harden performance contracts, designer rules, and terminal UX
+- e608207 Fix terminal startup focus and session history visibility
+- d93960a fix(station): harden workbench terminal interactions
+- f8bbc82 feat(agent): add AgentScope field to filter designer agents from station list
+- 661f1a0 fix(git): harden workspace lifecycle and status
+- b43be81 feat(designer): dispatch scenario to designer agent station terminal (B5 step 2a)
+- e9532b2 fix(designer): remove broken freeform completion UI (B5 cleanup)
+- e1a0331 feat(designer): useDesignerAgentStation controller + IPC wrappers (B4)
+- 3723bf2 refactor(designer): delete headless freeform completion path (B3)
+- 90f87f9 feat(designer): agent_station backend (ensure/render_scenario/checkpoint)
+- b2fecab feat(agent): seed business-designer role for designer station
+- dd574a3 fix(designer): address final-review findings
+- c2b14fe docs(designer): sync artifact layer — deps, module design, contracts, ADR 0018
+- 17a5135 feat(designer): display completeness gaps in inspector
+- e81d825 feat(designer): uiScreen HTML iframe preview + dataContract object render
+- 7478057 feat(designer): uiScreen kind + create defaults (frontend)
+- 936dc68 feat(designer): compile + export code-gen-prompt.md asset
+- 1b178dd fix(designer): satisfy clippy -D warnings in artifact-layer code
+- a0d8030 feat(designer): render_code_gen_prompt code-gen asset renderer
+- c996269 feat(designer): completeness_rules module + wire into validate
+- 644791b feat(designer): check_data_contract JSON Schema consistency rule
+- 49d5db7 chore(designer): commit scraper lockfile resolution
+- 2534b5d feat(designer): check_ui_screen consistency rule + derive_edges UI arm
+- 023e1fa feat(designer): support uiScreen block kind + dataContract schema render
+- 807b0df feat(designer): add Completeness layer, Info severity, NavigatesTo/ParticipatesIn relations
+- 99730eb feat(designer): add scraper dep + ui_refs HTML data-* extractor
+- 3ceb8f0 WIP: snapshot pre-artifact-layer designer/shell work
+- 017645d Add designer artifact layer implementation plan
+- e0d4ab4 Add designer artifact layer design spec
+- 3364602 Fix business designer completion controls
+- d020e9b Implement business designer gap completion
+- abe75a2 Configure engineering agent skills
+- 682dab9 Improve git diff freshness and graph UX
+- 76ba95f Cover parent-scoped discard of untracked files
+- 8510960 Sync git UI repository scope handling
+- 2dc20f2 Strengthen multi-repository git discovery
+- 812dfc2 Harden designer v1 spec against native-feel-cross-platform-desktop tenets
+- 96c447b Iterate business designer module design to v1 graph paradigm
+- d6c4fa3 Add business designer module with full-stack command surface
+- d72c6f9 Cut left pane route enter motion
+- 4684447 Stabilize terminal idle action presses
+- 9c611f9 Stabilize session history action presses
+- 87f2c2c Stabilize station toolbar press states
+- 60476ae Stabilize station command sheet press states
+- ac1bb43 Stabilize station action rail press state
+- c5a5cdf Stabilize terminal pane button press states
+- 11b2420 Avoid persistent terminal host promotion
+- df27aa8 Expose session history as selectable list
+- 7515ec5 Keep main surface stable during workspace switch
+- f3dd0a6 Cut main pane route fade
+- 9992f62 Suppress station chrome touch callouts
+- c21f4b6 Let station action rail use native scrolling
+- 88fa5bc Cut station slot fade transitions
+- 6ecab05 Delay session history loading chrome
+- 56deb66 Polish terminal station chrome responsiveness
+- a440061 Normalize terminal restore revisions
+- dd35745 Normalize terminal output revision hydration
+- cf955d9 Normalize terminal session sequence hydration
+- d858ae3 Normalize cached terminal output sequences
+- 4269207 Normalize terminal output sequences
+- d2bc78b Normalize terminal meta unread counts
+- 3152c0d Flush merged terminal input fragments
+- 3f650b7 Normalize terminal restore viewports
+- 33cf5b9 Normalize controller terminal unread deltas
+- 93938a8 Normalize terminal submit sequences
+- 5571a70 Normalize cached terminal unread deltas
+- 05edfcb Normalize terminal output unread deltas
+- c20f952 Normalize terminal input flush delays
+- 17851ec Harden terminal debug reduced motion
+- 2899433 Skip stale terminal replay frame waits
+- dd48829 Coalesce terminal pending replay chunks
+- 8ecff6d Chunk terminal pending replay writes
+- 6ab4d33 Bound terminal input buffer limits
+- 332ee8c Harden top control reduced motion
+- 1107e43 Harden station overview reduced motion
+- 82bdd50 Harden Apple-grade terminal console
+- 13e328c Optimize terminal streaming performance
+- 5c05a20 Harden terminal performance contracts
+- 42106df Fix shell controller type regressions
+- 1c113bd Refactor shell root controllers
+
 ## v0.7.2 (2026-06-06)
 
 - 616eddf Release v0.7.1
