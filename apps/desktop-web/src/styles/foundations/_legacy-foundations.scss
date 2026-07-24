@@ -815,3 +815,26 @@ button {
   font: inherit;
   cursor: pointer;
 }
+
+/* ========================================
+   Native macOS Window Vibrancy
+   ========================================
+   When the Tauri shell applies an OS-level NSVisualEffectView behind the
+   webview (signalled via `data-vb-native-vibrancy`), the opaque app base
+   becomes transparent so the native frosted glass shows through the
+   semi-transparent surfaces of the file, git and terminal panes.
+
+   CSS `backdrop-filter` blur on the resizable shell panes becomes redundant
+   (the OS composites the blur in hardware), so it is disabled for a reflow
+   performance win - the same rationale as the `.shell-pane-resizing` mode.
+   Windows/Linux/web never set the flag and keep the CSS-glass rendering. */
+:root[data-vb-native-vibrancy='true'] {
+  --vb-bg: transparent;
+}
+
+:root[data-vb-native-vibrancy='true'] .shell-left-pane,
+:root[data-vb-native-vibrancy='true'] .shell-main-pane,
+:root[data-vb-native-vibrancy='true'] .shell-right-pane {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

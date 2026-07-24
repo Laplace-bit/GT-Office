@@ -314,12 +314,48 @@
 }
 
 .window-platform-macos {
+  // On macOS the title bar is part of the application surface rather than a
+  // separate card. This leaves the traffic-light area and workspace tabs in
+  // one continuous, native-feeling toolbar.
+  &.native-window-top {
+    min-height: calc(var(--vb-top-control-button-size) + var(--vb-space-md));
+    padding:
+      max(var(--vb-space-2xs), calc(env(titlebar-area-height, 0rem) - var(--vb-top-control-button-size)))
+      var(--vb-space-md)
+      var(--vb-space-2xs);
+    border: 0;
+    border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 86%, transparent);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--vb-surface-muted) 82%, transparent);
+    box-shadow: inset 0 calc(var(--vb-border-width) * -1) 0 rgba(255, 255, 255, 0.08);
+  }
+
   .vb-top-control-leading {
     padding-left: var(--vb-platform-leading-inset);
   }
 
   .vb-top-actions {
     justify-content: flex-start;
+  }
+
+  .vb-top-action-button {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+
+    &:hover {
+      background: color-mix(in srgb, var(--vb-text) 7%, transparent);
+      box-shadow: none;
+    }
+
+    &.active {
+      background: color-mix(in srgb, var(--vb-accent) 14%, transparent);
+      border-color: transparent;
+    }
+  }
+
+  .vb-top-control-divider {
+    opacity: 0.42;
   }
 }
 

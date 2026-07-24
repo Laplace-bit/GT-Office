@@ -1119,6 +1119,9 @@
   will-change: transform;
   overflow: hidden;
   z-index: 1;
+  transition:
+    background-color 140ms var(--vb-ease-smooth),
+    border-color 140ms var(--vb-ease-smooth);
 }
 
 .git-file-group-row--static {
@@ -1228,7 +1231,9 @@
   height: var(--vb-git-file-row-height);
   border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 54%, transparent);
   background: transparent;
-  transition: background-color 80ms var(--vb-ease-out);
+  transition:
+    background-color 140ms var(--vb-ease-smooth),
+    box-shadow 140ms var(--vb-ease-smooth);
   contain: layout style;
   will-change: transform;
 }
@@ -1269,6 +1274,13 @@
   text-align: left;
 }
 
+.git-file-row__select:focus-visible,
+.git-file-group-row__toggle:focus-visible {
+  outline: #{rem(2)} solid color-mix(in srgb, var(--vb-accent) 72%, transparent);
+  outline-offset: #{rem(-2)};
+  border-radius: var(--vb-radius-sm);
+}
+
 .git-file-row__status {
   flex-shrink: 0;
   min-width: #{rem(22)};
@@ -1278,6 +1290,9 @@
   text-align: center;
   padding: #{rem(2)} #{rem(3)};
   border-radius: var(--vb-radius-xs);
+  transition:
+    background-color 140ms var(--vb-ease-smooth),
+    color 140ms var(--vb-ease-smooth);
 }
 
 .git-file-row__status--staged {
@@ -1330,6 +1345,46 @@
 .git-file-row--active .git-file-row__path {
   color: color-mix(in srgb, var(--vb-accent) 18%, var(--vb-text));
   font-weight: 600;
+}
+
+// Native macOS vibrancy is applied at the window level. Keep dense Git data
+// readable with translucent-but-solid local surfaces and avoid double blur in
+// the header, which otherwise makes scrolling and resizing feel less native.
+:root[data-vb-native-vibrancy='true'] {
+  .git-pane {
+    border-color: color-mix(in srgb, var(--vb-border) 88%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vb-surface) 88%, transparent) 0%,
+      color-mix(in srgb, var(--vb-surface) 80%, transparent) 100%
+    );
+  }
+
+  .git-pane__header {
+    background: color-mix(in srgb, var(--vb-surface) 90%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .git-file-group-row {
+    background: color-mix(in srgb, var(--vb-surface-muted) 92%, var(--vb-input-bg));
+  }
+
+  .git-file-row:hover {
+    background: color-mix(in srgb, var(--vb-hover-overlay) 84%, var(--vb-surface));
+  }
+
+  .git-file-row--active {
+    background: color-mix(in srgb, var(--vb-accent) 18%, var(--vb-surface));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .git-file-group-row,
+  .git-file-row,
+  .git-file-row__status {
+    transition: none !important;
+  }
 }
 
 .git-pane__repo-chip {

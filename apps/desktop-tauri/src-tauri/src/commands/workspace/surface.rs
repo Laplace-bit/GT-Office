@@ -211,11 +211,15 @@ pub async fn workspace_open_in_new_window(
         window_config.y = None;
     }
     let workspace_window_builder = WebviewWindowBuilder::from_config(app, &window_config)
-        .map_err(|error| format!("WORKSPACE_WINDOW_CONFIG_BUILD_FAILED: {error}"))?;
+        .map_err(|error| format!("WORKSPACE_WINDOW_CONFIG_BUILD_FAILED: {error}"))?
+        .transparent(cfg!(target_os = "macos"));
 
     state.bind_window_workspace(&window_label, workspace_id)?;
     let workspace_window = match workspace_window_builder.build() {
-        Ok(window) => window,
+        Ok(window) => {
+            let _ = crate::native_window::apply_native_vibrancy(&window);
+            window
+        }
         Err(error) => {
             let _ = state.clear_window_workspace(&window_label);
             return Err(format!("WORKSPACE_WINDOW_CREATE_FAILED: {error}"));
@@ -312,11 +316,13 @@ pub async fn surface_open_detached_window(
     window_config.drag_drop_enabled = false;
     window_config.always_on_top = topmost;
     let surface_window_builder = WebviewWindowBuilder::from_config(app, &window_config)
-        .map_err(|error| format!("SURFACE_WINDOW_CONFIG_BUILD_FAILED: {error}"))?;
+        .map_err(|error| format!("SURFACE_WINDOW_CONFIG_BUILD_FAILED: {error}"))?
+        .transparent(cfg!(target_os = "macos"));
 
     let surface_window = surface_window_builder
         .build()
         .map_err(|error| format!("SURFACE_WINDOW_CREATE_FAILED: {error}"))?;
+    let _ = crate::native_window::apply_native_vibrancy(&surface_window);
 
     state.bind_window_workspace(&window_label, workspace_id)?;
     emit_surface_window_updated(app, &window_label, topmost)?;

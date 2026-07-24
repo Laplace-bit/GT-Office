@@ -7,6 +7,7 @@ mod daemon_bridge;
 mod external_tool_profiles;
 mod filesystem_watcher;
 mod local_bridge;
+mod native_window;
 mod process_utils;
 mod startup_services;
 mod terminal_debug;
@@ -38,10 +39,18 @@ pub fn run() {
                 .find(|window| window.label == "main")
                 .cloned()
                 .ok_or_else(|| "missing main window config".to_string())?;
-            WebviewWindowBuilder::from_config(app, &main_window_config)
+            let main_window = WebviewWindowBuilder::from_config(app, &main_window_config)
                 .map_err(|error| format!("failed to prepare main window builder: {error}"))?
+                // Native macOS vibrancy requires a transparent window surface so the
+                // NSVisualEffectView shows through the webview. Windows/Linux keep the
+                // opaque surface from config (`transparent: false`).
+                .transparent(cfg!(target_os = "macos"))
                 .build()
                 .map_err(|error| format!("failed to build main window: {error}"))?;
+            // Apply native frosted glass behind the webview (macOS only). The frontend
+            // queries `system_native_vibrancy_status` and flips its base background to
+            // transparent only when this succeeds, so a failure degrades gracefully.
+            let _ = native_window::apply_native_vibrancy(&main_window);
 
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
@@ -290,6 +299,7 @@ pub fn run() {
             system::system_pick_directory,
             system::system_confirm,
             system::system_signal_ui_ready,
+            system::system_native_vibrancy_status,
             system::system_open_url,
             session::session_list,
             session::session_discover,

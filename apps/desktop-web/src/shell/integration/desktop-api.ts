@@ -2676,6 +2676,9 @@ export const desktopApi = {
   signalUiReady() {
     return invokeCommand<void>('system_signal_ui_ready')
   },
+  nativeVibrancyStatus() {
+    return invokeCommand<boolean>('system_native_vibrancy_status')
+  },
   systemOpenUrl(url: string) {
     return invokeCommand<void>('system_open_url', { url })
   },

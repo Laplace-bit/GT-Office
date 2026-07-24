@@ -18,6 +18,17 @@ pub fn system_signal_ui_ready(
     Ok(())
 }
 
+/// Whether the Tauri shell applied native window vibrancy during setup.
+///
+/// The frontend uses this to switch its base background to transparent so the
+/// OS-level frosted glass shows through. Returns `false` on Windows/Linux/web and
+/// on macOS when applying the material failed, in which case the app keeps its
+/// CSS-glass rendering.
+#[tauri::command]
+pub fn system_native_vibrancy_status() -> bool {
+    crate::native_window::is_native_vibrancy_active()
+}
+
 const GTO_WRAPPER_MARKER: &str = "# Managed by GT Office: gto cli";
 const GTO_SKILL_DIR_NAME: &str = "gto-agent-communication";
 const GTO_SKILL_MARKER_FILE: &str = ".gto-managed.json";

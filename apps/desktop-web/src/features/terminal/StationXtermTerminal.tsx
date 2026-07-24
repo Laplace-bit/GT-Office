@@ -989,22 +989,32 @@ function StationXtermTerminalView({
         const isMacOsWebKitImeFallbackEnabled = isMacOsWebKitEnvironmentRef.current
         let suppressedDeferredXtermEchoRef: { current: string | null } | null = null
         const terminalTextarea = terminal.textarea
-        if (terminalTextarea) {
-          // Backport the upstream xterm fix that re-syncs the helper textarea before IME
-          // composition starts. Dynamic TUIs like Claude Code redraw aggressively, and
-          // xterm 6.0.0 can otherwise lock the IME anchor to a stale cursor position.
-          const syncTextareaBeforeCompositionStart = () => {
-            const terminalCore = terminal as typeof terminal & {
-              _core?: { _syncTextArea?: () => void }
-            }
-            terminalCore._core?._syncTextArea?.()
+        // xterm parks its helper textarea off-screen (left: -9999em, zero size) and only
+        // re-anchors it to the cursor when the cursor moves. Re-syncing it on demand is
+        // required both before IME composition (upstream anchor fix) and before a
+        // programmatic focus call: WKWebView does not reliably bind keyboard input to a
+        // focus() against that hidden textarea, so a freshly launched terminal ended up
+        // focused yet unable to accept keystrokes until a manual blur/refocus. Anchoring
+        // the textarea to the cursor first lets the startup focus take hold.
+        const syncHelperTextareaPosition = () => {
+          const terminalCore = terminal as typeof terminal & {
+            _core?: { _syncTextArea?: () => void }
           }
-          terminalTextarea.addEventListener('compositionstart', syncTextareaBeforeCompositionStart, true)
+          terminalCore._core?._syncTextArea?.()
+        }
+        if (terminalTextarea) {
+          terminalTextarea.addEventListener('compositionstart', syncHelperTextareaPosition, true)
           removeCompositionStartSyncListener = () => {
-            terminalTextarea.removeEventListener('compositionstart', syncTextareaBeforeCompositionStart, true)
+            terminalTextarea.removeEventListener('compositionstart', syncHelperTextareaPosition, true)
           }
         }
         terminal.attachCustomKeyEventHandler((event) => {
+          // Diagnostic: record every keydown/keypress that reaches xterm so we can
+          // tell whether WKWebView delivers keydown for control keys (Enter/Backspace)
+          // after a programmatic focus, or only insertText input events for chars.
+          recordFocusDiagnostic('xterm-key-event', `${event.type}:${event.key}:${event.keyCode}`)
+          // eslint-disable-next-line no-console
+          console.warn('[gto-terminal] xterm key event', event.type, event.key, event.keyCode)
           const shouldBypass = shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled)
           if (shouldBypass) {
             if (pendingNativeTextInputRef) {
@@ -1085,10 +1095,24 @@ function StationXtermTerminalView({
           cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
           focusRetryFrameRef.current = null
         }
+        // xterm parks its helper textarea off-screen (left: -9999em) until
+        // _syncTextArea anchors it to the cursor. WKWebView will set that off-screen
+        // textarea as activeElement on a programmatic focus() without dispatching the
+        // focus event, so keydown for control keys (Enter, arrows) is never delivered
+        // even though insertText input events still reach xterm. Treat the terminal as
+        // focused only once the textarea is both active and anchored on-screen.
+        const isHelperTextareaAnchored = () => {
+          const textarea = terminal.textarea
+          if (!textarea) {
+            return false
+          }
+          const left = textarea.style.left
+          return Boolean(left) && left !== '-9999em'
+        }
         const terminalHasDomFocus = () => {
           const textarea = terminal.textarea
           if (textarea && textarea.ownerDocument.activeElement === textarea) {
-            return true
+            return isHelperTextareaAnchored()
           }
           return host.matches(':focus-within')
         }
@@ -1130,6 +1154,11 @@ function StationXtermTerminalView({
             if (!active) {
               return
             }
+            // Diagnostic: confirm whether the helper textarea's focus event fires
+            // after a programmatic focus (WKWebView can set activeElement without it).
+            recordFocusDiagnostic('textarea-focus-event', 'focus')
+            // eslint-disable-next-line no-console
+            console.warn('[gto-terminal] textarea focus event fired')
             refreshStationTerminalAfterTextureAtlasRecovery(terminal)
           }
           terminalTextarea.addEventListener('focus', handleTerminalFocusTextureRecovery)
@@ -1155,6 +1184,26 @@ function StationXtermTerminalView({
               return
             }
             recordFocusDiagnostic('focus-request', `remainingFrames=${remainingFrames}`)
+            syncHelperTextareaPosition()
+            const focusTextarea = terminal.textarea
+            if (!focusTextarea || !isHelperTextareaAnchored()) {
+              // The helper textarea is still off-screen (terminal not fitted yet).
+              // Focusing it now would set activeElement without dispatching the focus
+              // event, leaving keydown undelivered. Wait for fit/sync to anchor it.
+              if (remainingFrames <= 0) {
+                return
+              }
+              remainingFrames -= 1
+              focusRetryFrameRef.current = scheduleStationTerminalFrameFlush(
+                () => {
+                  focusRetryFrameRef.current = null
+                  attemptFocus()
+                },
+                createStationTerminalFrameFlushScheduler(window),
+                TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+              )
+              return
+            }
             try {
               terminal.focus()
             } catch (error) {

@@ -20,6 +20,8 @@ export type StationTerminalFocusDiagnosticKind =
   | 'focus-success'
   | 'focus-deferred'
   | 'focus-error'
+  | 'xterm-key-event'
+  | 'textarea-focus-event'
   | 'viewport-wake'
   | 'ui-control-event'
   | 'terminal-kill-request'

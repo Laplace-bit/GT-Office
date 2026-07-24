@@ -22,29 +22,23 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration);
   --workspace-switch-ease: #{$workspace-switch-ease};
   --workspace-switch-exit-ease: #{$workspace-switch-exit-ease};
-  background:
-    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(0, 122, 255, 0.04), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(88, 86, 214, 0.03), transparent 50%),
-    var(--vb-bg);
+  background: var(--vb-bg);
   transition: background-color 0.3s ease;
 
   :root[data-vb-platform='macos'] & {
-    padding-top: var(--vb-space-2xs);
+    // The native title bar provides the outer frame. Keeping this flush prevents
+    // a second, floating frame from competing with the macOS window material.
+    gap: 0;
+    background: color-mix(in srgb, var(--vb-bg) 94%, transparent);
   }
 }
 
 :root[data-theme='graphite-dark'] .agent-shell {
-  background:
-    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(10, 132, 255, 0.06), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(175, 82, 222, 0.04), transparent 50%),
-    var(--vb-bg);
+  background: var(--vb-bg);
 }
 
 :root[data-theme='sakura-night'] .agent-shell {
-  background:
-    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(244, 114, 182, 0.06), transparent 50%),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(192, 132, 252, 0.04), transparent 50%),
-    var(--vb-bg);
+  background: var(--vb-bg);
 }
 
 .shell-main-layout {
@@ -55,6 +49,12 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   align-items: stretch;
   gap: var(--vb-space-2xs);
   background: var(--vb-bg);
+
+  :root[data-vb-platform='macos'] & {
+    gap: var(--vb-space-2xs);
+    padding: 0 var(--vb-space-2xs) var(--vb-space-2xs);
+    background: transparent;
+  }
 }
 
 .shell-top-slot {
