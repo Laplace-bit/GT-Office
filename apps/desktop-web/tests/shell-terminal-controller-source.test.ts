@@ -44,6 +44,25 @@ test('station terminal creation skips shell profiles so the new session becomes 
   )
 })
 
+test('created terminal sessions are published through React state before input is accepted', () => {
+  const ensureSessionBlock =
+    controllerSource.match(/const ensureStationTerminalSession = useMemo\([\s\S]*?\n  const focusStationTerminal/m)?.[0] ?? ''
+  const createdSessionBlock =
+    ensureSessionBlock.match(/sessionStationRef\.current\[session\.sessionId\][\s\S]*?return session\.sessionId/)?.[0] ?? ''
+
+  assert.notEqual(createdSessionBlock, '', 'created terminal session result path should exist')
+  assert.match(
+    createdSessionBlock,
+    /setStationTerminalState\(stationId, \{[\s\S]*?sessionId: session\.sessionId[\s\S]*?stateRaw: 'running'/,
+    'the created session must be published to the terminal component',
+  )
+  assert.doesNotMatch(
+    createdSessionBlock,
+    /stationTerminalsRef\.current\s*=/,
+    'mutating the runtime ref first makes the state publisher treat the session patch as a no-op',
+  )
+})
+
 test('terminal and agent launches immediately replace stale output and activate their target station', () => {
   const launchTerminalBlock =
     controllerSource.match(/const launchStationTerminal = useMemo\([\s\S]*?\n  \)\n\n  \/\/ ── Send station terminal input/m)?.[0] ?? ''

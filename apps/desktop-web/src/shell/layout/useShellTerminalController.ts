@@ -2902,26 +2902,6 @@ export function useShellTerminalController({
             terminalSessionSeqRef.current[session.sessionId] = 0
             delete stationTerminalRestoreStateRef.current[stationId]
             ensureTerminalSessionVisible(launchWorkspaceId, session.sessionId)
-            const currentRuntime = stationTerminalsRef.current[stationId] ?? {
-              sessionId: null,
-              stateRaw: 'idle',
-              unreadCount: 0,
-              shell: null,
-              cwdMode: 'workspace_root' as const,
-              resolvedCwd: null,
-            }
-            stationTerminalsRef.current = {
-              ...stationTerminalsRef.current,
-              [stationId]: {
-                ...currentRuntime,
-                sessionId: session.sessionId,
-                stateRaw: 'running',
-                unreadCount: 0,
-                shell: session.shell,
-                cwdMode: session.cwdMode,
-                resolvedCwd: session.resolvedCwd,
-              },
-            }
             resetStationTerminalOutput(
               stationId,
               `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
