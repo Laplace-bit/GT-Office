@@ -13,6 +13,10 @@ Technical documentation for the GT Office project.
 - [API_CONTRACTS.md](API_CONTRACTS.md) — Tauri command surface, events, and shared types
 - [DEPENDENCIES.md](DEPENDENCIES.md) — Dependency policy and allowlist
 
+## Product Upgrades
+
+- [AGENT_RUNTIME_UPGRADE_PRD.md](AGENT_RUNTIME_UPGRADE_PRD.md) — Phased PRD for explainable agent runtime, recovery, automation, worktrees, and controlled extensions
+
 ## Release
 
 - [release-process.md](release-process.md) — Release workflow, tagging, and artifact publishing
