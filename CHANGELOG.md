@@ -1,3 +1,10 @@
+## v0.7.4 (2026-07-27)
+
+- 032bf60 Polish workbench layout and shell chrome
+- 97b01c8 Add agent runtime upgrade PRD
+- 03e3b7f Add native window vibrancy and terminal focus fixes
+- 8b7dee2 Improve terminal drag feedback
+
 ## v0.7.3 (2026-07-24)
 
 - 277dbe6 Hide business designer nav entry from activity rail

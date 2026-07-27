@@ -1935,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "gt-abstractions"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -1946,7 +1946,7 @@ dependencies = [
 
 [[package]]
 name = "gt-agent"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "gt-agent-session"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "rusqlite",
@@ -1969,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "gt-ai-config"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "gt-abstractions",
@@ -1987,7 +1987,7 @@ dependencies = [
 
 [[package]]
 name = "gt-changefeed"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "gt-core"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2010,7 +2010,7 @@ dependencies = [
 
 [[package]]
 name = "gt-daemon"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2032,7 +2032,7 @@ dependencies = [
 
 [[package]]
 name = "gt-filesystem"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2043,7 +2043,7 @@ dependencies = [
 
 [[package]]
 name = "gt-git"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "git2",
@@ -2059,7 +2059,7 @@ dependencies = [
 
 [[package]]
 name = "gt-keymap"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2070,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "gt-security"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2081,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "gt-session-log"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "serde_json",
  "uuid",
@@ -2089,7 +2089,7 @@ dependencies = [
 
 [[package]]
 name = "gt-settings"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "gt-abstractions",
@@ -2101,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "gt-storage"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "gt-agent",
@@ -2115,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "gt-task"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "gt-telemetry"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "gt-terminal"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "gt-abstractions",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "gt-terminal-core"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "portable-pty",
  "pretty_assertions",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "gt-tools"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "serde",
@@ -2179,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "gt-workspace"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "anyhow",
  "gt-abstractions",
@@ -2244,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "gtoffice-desktop-tauri"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "base64 0.22.1",
  "bincode",
