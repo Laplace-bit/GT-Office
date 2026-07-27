@@ -2040,7 +2040,6 @@ function StationXtermTerminalView({
   return (
     <div
       className={`station-terminal-shell${runtimeInitAllowed ? '' : ' is-runtime-pending'}`}
-      data-active={isActive ? 'true' : 'false'}
       data-file-drop-active={fileDropActive ? 'true' : 'false'}
       onPointerDownCapture={(event) => {
         if (event.button !== 0) {

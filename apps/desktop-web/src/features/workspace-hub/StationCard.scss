@@ -45,10 +45,10 @@
 
   &.active {
     z-index: 10;
-    box-shadow: inset 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-accent) 85%, white 15%);
+    box-shadow: none;
 
     &::after {
-      border-color: rgba(255, 255, 255, 0.1);
+      border: rem(1.5) solid color-mix(in srgb, var(--vb-accent) 85%, white 15%);
     }
   }
 
@@ -177,8 +177,6 @@
 
   .station-window.active {
     box-shadow:
-      0 0 0 rem(1.5) color-mix(in srgb, var(--vb-accent) 78%, white 22%),
-      0 0 0 rem(4) color-mix(in srgb, var(--vb-accent) 8%, transparent),
       0 rem(14) rem(30) color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 

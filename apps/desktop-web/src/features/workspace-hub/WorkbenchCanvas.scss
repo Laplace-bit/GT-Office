@@ -1073,8 +1073,7 @@
       margin: 0;
       border-radius: var(--focus-station-corner-radius);
 
-      .station-terminal-shell,
-      .station-terminal-shell::after {
+      .station-terminal-shell {
         border-bottom-right-radius: var(--focus-station-corner-radius);
         border-bottom-left-radius: var(--focus-station-corner-radius);
       }
@@ -1195,8 +1194,7 @@
   .focus-main-stage .station-window {
     border-radius: var(--focus-station-corner-radius);
 
-    .station-terminal-shell,
-    .station-terminal-shell::after {
+    .station-terminal-shell {
       border-bottom-right-radius: var(--focus-station-corner-radius);
       border-bottom-left-radius: var(--focus-station-corner-radius);
     }
