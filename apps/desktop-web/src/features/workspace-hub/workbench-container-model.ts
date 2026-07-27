@@ -144,10 +144,6 @@ export function createWorkbenchContainer(input: {
 export function createInitialWorkbenchContainers(
   stations: WorkbenchStationRef[],
   createId: () => string,
-  layoutDefaults: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } = {
-    mode: 'auto',
-    customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
-  },
 ): WorkbenchContainer[] {
   if (stations.length === 0) {
     return []
@@ -157,8 +153,8 @@ export function createInitialWorkbenchContainers(
       id: createId(),
       stationIds: stations.map((station) => station.id),
       activeStationId: stations[0]?.id ?? null,
-      layoutMode: layoutDefaults.mode,
-      customLayout: layoutDefaults.customLayout,
+      layoutMode: 'auto',
+      customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
       mode: 'docked',
     }),
   ]
@@ -278,10 +274,9 @@ function ensureContainerList(
   containers: WorkbenchContainer[],
   stations: WorkbenchStationRef[],
   createId: () => string,
-  defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout },
 ): WorkbenchContainer[] {
   if (containers.length === 0) {
-    return createInitialWorkbenchContainers(stations, createId, defaultLayout)
+    return createInitialWorkbenchContainers(stations, createId)
   }
   const nextContainers = containers
   const stationIdSet = new Set(stations.map((station) => station.id))
@@ -308,44 +303,31 @@ export function restoreWorkbenchContainers(
   snapshots: WorkbenchContainerSnapshot[] | null | undefined,
   stations: WorkbenchStationRef[],
   createId: () => string,
-  defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } = {
-    mode: 'auto',
-    customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
-  },
 ): WorkbenchContainer[] {
   const stationIdSet = new Set(stations.map((station) => station.id))
   const now = Date.now()
   const restored = (snapshots ?? [])
     .map((snapshot) => normalizeContainerSnapshot(snapshot, stationIdSet, now))
     .filter((container): container is WorkbenchContainer => Boolean(container))
-  return ensureContainerList(restored, stations, createId, defaultLayout)
+  return ensureContainerList(restored, stations, createId)
 }
 
 export function reconcileWorkbenchContainers(
   containers: WorkbenchContainer[],
   stations: WorkbenchStationRef[],
   createId: () => string,
-  defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } = {
-    mode: 'auto',
-    customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
-  },
 ): WorkbenchContainer[] {
   const stationIdSet = new Set(stations.map((station) => station.id))
-  // Build an order map so container stationIds follow the global order
-  const stationOrderMap = new Map(stations.map((station, index) => [station.id, index]))
   let changed = false
   const nextContainers = containers.map((container) => {
     const mode = container.mode
-    const filteredStationIds = container.stationIds.filter((stationId) => stationIdSet.has(stationId))
-    // Re-sort to match global station order, preserving any station not in global list at the end
-    const sortedStationIds = [...filteredStationIds].sort((a, b) => {
-      const orderA = stationOrderMap.get(a) ?? Number.MAX_SAFE_INTEGER
-      const orderB = stationOrderMap.get(b) ?? Number.MAX_SAFE_INTEGER
-      return orderA - orderB
-    })
-    const stationIds = isSameStringArray(sortedStationIds, container.stationIds)
+    // A container's stationIds are the explicit visual order used by focus tabs and
+    // same-container drag moves. Reconciliation may remove stale IDs, but it must
+    // not re-sort the retained ones whenever station inventory refreshes.
+    const retainedStationIds = container.stationIds.filter((stationId) => stationIdSet.has(stationId))
+    const stationIds = isSameStringArray(retainedStationIds, container.stationIds)
       ? container.stationIds
-      : sortedStationIds
+      : retainedStationIds
     const activeStationId =
       container.activeStationId && stationIds.includes(container.activeStationId)
         ? container.activeStationId
@@ -397,7 +379,7 @@ export function reconcileWorkbenchContainers(
       resumeMode,
     } satisfies WorkbenchContainer
   })
-  return ensureContainerList(changed ? nextContainers : containers, stations, createId, defaultLayout)
+  return ensureContainerList(changed ? nextContainers : containers, stations, createId)
 }
 
 export function serializeWorkbenchContainers(

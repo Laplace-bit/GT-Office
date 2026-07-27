@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
@@ -143,7 +143,10 @@ export function TopControlBar({
   onTogglePinnedWorkbenchContainer,
 }: TopControlBarProps) {
   const [pinDropdownOpen, setPinDropdownOpen] = useState(false)
+  const pinDropdownId = useId()
   const pinDropdownRef = useRef<HTMLDivElement | null>(null)
+  const pinDropdownTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const pinDropdownFirstItemRef = useRef<HTMLButtonElement | null>(null)
 
   const workspacePathCandidate = extractWorkspacePathCandidate(workspacePath, connectionLabel)
   const displayWorkspacePath = formatWorkspacePathForDisplay(workspacePathCandidate)
@@ -174,6 +177,9 @@ export function TopControlBar({
     (containerId: string) => {
       onTogglePinnedWorkbenchContainer(containerId)
       setPinDropdownOpen(false)
+      window.requestAnimationFrame(() => {
+        pinDropdownTriggerRef.current?.focus()
+      })
     },
     [onTogglePinnedWorkbenchContainer],
   )
@@ -189,10 +195,35 @@ export function TopControlBar({
       return
     }
     document.addEventListener('mousedown', handlePinDropdownOutsideClick)
+    const frameId = window.requestAnimationFrame(() => {
+      pinDropdownFirstItemRef.current?.focus()
+    })
     return () => {
       document.removeEventListener('mousedown', handlePinDropdownOutsideClick)
+      window.cancelAnimationFrame(frameId)
     }
   }, [pinDropdownOpen, handlePinDropdownOutsideClick])
+
+  const closePinDropdown = useCallback((restoreFocus = false) => {
+    setPinDropdownOpen(false)
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => {
+        pinDropdownTriggerRef.current?.focus()
+      })
+    }
+  }, [])
+
+  const handlePinDropdownKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      closePinDropdown(true)
+    },
+    [closePinDropdown],
+  )
 
   const actionButtons: TopActionButton[] = [
     {
@@ -325,7 +356,11 @@ export function TopControlBar({
                 ]
                   .filter(Boolean)
                   .join(' ')}
+                ref={btn.key === 'pin-right-dock' ? pinDropdownTriggerRef : undefined}
                 aria-label={btn.label}
+                aria-expanded={btn.key === 'pin-right-dock' && hasMultipleDockedContainers ? pinDropdownOpen : undefined}
+                aria-controls={btn.key === 'pin-right-dock' && hasMultipleDockedContainers ? pinDropdownId : undefined}
+                aria-haspopup={btn.key === 'pin-right-dock' && hasMultipleDockedContainers ? 'menu' : undefined}
                 title={btn.label}
                 disabled={btn.disabled}
               >
@@ -333,14 +368,21 @@ export function TopControlBar({
                 {btn.key === 'toggle-performance-debug' ? <span className="vb-top-action-label">Perf</span> : null}
               </button>
               {btn.key === 'pin-right-dock' && pinDropdownOpen && !isPinned && hasMultipleDockedContainers ? (
-                <div className="vb-pin-container-dropdown" ref={pinDropdownRef} role="listbox" aria-label={t(locale, 'topControlBar.pinRightDockSelect')}>
-                  {dockedContainerOptions.map((option) => (
+                <div
+                  id={pinDropdownId}
+                  ref={pinDropdownRef}
+                  className="vb-pin-container-dropdown"
+                  role="menu"
+                  aria-label={t(locale, 'topControlBar.pinRightDockSelect')}
+                  onKeyDown={handlePinDropdownKeyDown}
+                >
+                  {dockedContainerOptions.map((option, index) => (
                     <button
                       key={option.id}
+                      ref={index === 0 ? pinDropdownFirstItemRef : undefined}
                       type="button"
                       className="vb-pin-container-dropdown-item"
-                      role="option"
-                      aria-selected={false}
+                      role="menuitem"
                       onClick={() => handlePinDropdownSelect(option.id)}
                     >
                       {option.label}

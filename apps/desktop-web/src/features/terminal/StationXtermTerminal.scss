@@ -13,9 +13,23 @@
   // Native terminal: subtle top divider line
   border-top: var(--vb-border-width) solid var(--vb-terminal-border);
 }
-// Focus state: subtle accent ring when terminal is active
+.station-terminal-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: var(--vb-border-width) solid transparent;
+  border-radius: 0;
+  transition: border-color 140ms var(--vb-ease-smooth);
+  z-index: 3;
+}
+
+// Keep the active frame above the terminal host. An inset shadow on the shell
+// is painted beneath the host background, which hides its side and bottom edges.
 .station-terminal-shell[data-active='true'] {
-  box-shadow: inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-terminal-focus) 12%, transparent);
+  &::after {
+    border-color: color-mix(in srgb, var(--vb-terminal-focus) 56%, var(--vb-terminal-border));
+  }
 }
 
 .station-terminal-shell,
@@ -36,9 +50,9 @@
 }
 
 :root[data-vb-native-vibrancy='true'] .station-terminal-shell[data-active='true'] {
-  box-shadow: inset 0 0 0 var(--vb-border-width)
-      color-mix(in srgb, var(--vb-terminal-focus) 32%, transparent),
-    inset 0 0.0625rem 0 color-mix(in srgb, #ffffff 8%, transparent);
+  &::after {
+    border-color: color-mix(in srgb, var(--vb-terminal-focus) 72%, var(--vb-terminal-border));
+  }
 }
 
 :root[data-vb-native-vibrancy='true'] .station-terminal-shell .station-terminal-host,
@@ -192,7 +206,7 @@
 
 // Native terminal feel: content area padding
 .station-terminal-shell .station-terminal-host .xterm {
-  padding: 0.4286rem 0.5714rem;
+  padding: 0;
   box-sizing: border-box;
 }
 

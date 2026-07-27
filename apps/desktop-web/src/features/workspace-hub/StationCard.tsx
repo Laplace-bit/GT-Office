@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { motion } from 'motion/react'
 import { Circle, GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation } from './station-model'
 import {
@@ -43,7 +42,6 @@ import type {
 import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import { SessionHistoryList, useSessionHistory, resolveStationSessionProvider } from '@features/session'
 import { resolveAgentWorkdirAbs } from '@features/workspace/station-workdir-model'
-import { STATION_MOTION } from './station-motion-spec'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
@@ -451,11 +449,8 @@ function StationCardView({
   }, [onEnterFullscreen, onExitFullscreen, station.id])
 
   return (
-    <motion.article
+    <article
       ref={rootRef}
-      layout="position"
-      layoutId={`station-card:${station.id}`}
-      transition={STATION_MOTION.cardLayoutTransition}
       data-station-id={station.id}
       className={[
         'station-window',
@@ -481,17 +476,13 @@ function StationCardView({
       }}
     >
       {taskSignal ? (
-        <motion.div
-          key={taskSignal.nonce}
+        <div
           className="station-task-ack-bubble"
           role="status"
           aria-live="polite"
-          initial={{ opacity: 0, y: -8, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={STATION_MOTION.taskAckTransition}
         >
           <strong aria-label={locale === 'zh-CN' ? '任务收到' : 'Task received'}>{taskAckEmoji}</strong>
-        </motion.div>
+        </div>
       ) : null}
 
       <header className="station-window-header">
@@ -716,7 +707,7 @@ function StationCardView({
       )}
       <StationActionDock actions={stationActions} compact={dockCompact} onAction={handleRunAction} />
 
-    </motion.article>
+    </article>
   )
 }
 

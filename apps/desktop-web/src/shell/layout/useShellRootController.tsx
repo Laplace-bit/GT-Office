@@ -146,12 +146,10 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   const [stationSearchQuery, setStationSearchQuery] = useState('')
   const [activeStationId, setActiveStationId] = useState(initialStations[0]?.id ?? '')
   const [workbenchContainers, setWorkbenchContainers] = useState<WorkbenchContainerModel[]>(() =>
-    createInitialWorkbenchContainers(initialStations, buildDefaultWorkbenchContainerId, initialCanvasLayout),
+    createInitialWorkbenchContainers(initialStations, buildDefaultWorkbenchContainerId),
   )
   const stationsRef = useRef(initialStations)
   const workbenchContainersRef = useRef(workbenchContainers)
-  const canvasLayoutModeRef = useRef(canvasLayoutMode)
-  const canvasCustomLayoutRef = useRef(canvasCustomLayout)
   const detachedWindowOpenInFlightRef = useRef<Record<string, boolean>>({})
   const shellContainerRef = useRef<HTMLDivElement | null>(null)
   const shellMainRef = useRef<HTMLElement | null>(null)
@@ -194,6 +192,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   const shouldRouteFileEditorShortcutRef = useRef<(target: EventTarget | null) => boolean>(
     () => false,
   )
+  const revealActiveTerminalRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     window.__GTO_OPEN_CHANNEL_STUDIO__ = () => {
@@ -254,6 +253,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     triggerFileEditorCommandRef,
     shouldRouteFileEditorShortcutRef,
     activeWorkspaceIdRef,
+    revealActiveTerminalRef,
   })
 
   const localeRef = useRef(uiPreferences.locale)
@@ -480,10 +480,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     workbenchContainerCounterRef,
     workbenchContainerSnapshotEntries,
     workbenchContainerSnapshotSignature,
-    canvasLayoutMode,
-    canvasCustomLayout,
-    canvasLayoutModeRef,
-    canvasCustomLayoutRef,
     activeNavId,
     setActiveNavId,
     activeStationId,
@@ -557,14 +553,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       return null
     })
   }, [workbenchContainers])
-
-  useEffect(() => {
-    canvasLayoutModeRef.current = canvasLayoutMode
-  }, [canvasLayoutMode])
-
-  useEffect(() => {
-    canvasCustomLayoutRef.current = canvasCustomLayout
-  }, [canvasCustomLayout])
 
   useEffect(() => {
     if (!pendingScrollStationId) {
@@ -1163,6 +1151,25 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
     setPendingScrollStationId((prev) => (prev === stationId ? null : prev))
   }, [])
+
+  const revealActiveTerminal = useCallback(() => {
+    const station =
+      stations.find((entry) => entry.id === activeStationId && entry.scope !== 'designer') ??
+      stations.find((entry) => entry.scope !== 'designer') ??
+      null
+    if (!station) {
+      return
+    }
+    setActiveNavId('stations')
+    setLeftPaneVisible(true)
+    setActiveStationId(station.id)
+    setPendingScrollStationId(station.id)
+    void launchStationTerminal(station.id)
+  }, [activeStationId, launchStationTerminal, setActiveNavId, setLeftPaneVisible, stations])
+
+  useEffect(() => {
+    revealActiveTerminalRef.current = revealActiveTerminal
+  }, [revealActiveTerminal])
 
   const handleTerminalFilePathDrop = useCallback(
     async (stationId: string, payload: TerminalFileDropPayload) => {

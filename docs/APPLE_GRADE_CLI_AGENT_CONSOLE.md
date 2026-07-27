@@ -60,6 +60,7 @@ It explicitly does not mean adding more workbench spectacle. Station/workbench r
 - Agent/session lists support arrow navigation and type-ahead where practical.
 - Agent switching preserves terminal scroll position, input draft, and session context.
 - Command history and quick commands must be reachable without mouse use.
+- Cmd+J on macOS and Ctrl+J on Windows reveal and focus the active terminal (or launch its session when absent).
 - Buttons and rows need visible pressed/focused states. Hover states are subtle and control-specific.
 - Do not apply `cursor: pointer` broadly to rows, tabs, and native-like controls.
 - Text selection is disabled for chrome and enabled only for editable fields and user/content output.

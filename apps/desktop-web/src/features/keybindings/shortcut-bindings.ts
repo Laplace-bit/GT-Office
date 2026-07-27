@@ -4,6 +4,7 @@ export type ShortcutCommandId =
   | 'shell.editor.find'
   | 'shell.editor.replace'
   | 'task.center.quick_dispatch'
+  | 'terminal.reveal_active'
 
 export interface ShortcutBinding {
   key: string
@@ -20,6 +21,7 @@ export interface ShortcutBindings {
   editorFind: ShortcutBinding
   editorReplace: ShortcutBinding
   taskQuickDispatch: ShortcutBinding
+  revealTerminal: ShortcutBinding
 }
 
 type ShortcutBindingKey = keyof ShortcutBindings
@@ -78,12 +80,22 @@ const FALLBACK_TASK_QUICK_DISPATCH: ShortcutBinding = {
   shift: true,
 }
 
+const FALLBACK_REVEAL_TERMINAL: ShortcutBinding = {
+  key: 'j',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+
 const COMMAND_TO_BINDING_KEY: Record<ShortcutCommandId, ShortcutBindingKey> = {
   'shell.search.open_file': 'openFileSearch',
   'shell.search.open_content': 'openContentSearch',
   'shell.editor.find': 'editorFind',
   'shell.editor.replace': 'editorReplace',
   'task.center.quick_dispatch': 'taskQuickDispatch',
+  'terminal.reveal_active': 'revealTerminal',
 }
 
 const MODIFIER_TOKEN_SET = new Set(['mod', 'ctrl', 'control', 'meta', 'cmd', 'command', 'alt', 'option', 'shift'])
@@ -238,6 +250,7 @@ export function getDefaultShortcutBindings(isMacOs: boolean): ShortcutBindings {
       ? parseOrFallback('Mod+Alt+F', FALLBACK_EDITOR_REPLACE_MAC)
       : parseOrFallback('Mod+H', FALLBACK_EDITOR_REPLACE),
     taskQuickDispatch: parseOrFallback('Mod+Shift+K', FALLBACK_TASK_QUICK_DISPATCH),
+    revealTerminal: parseOrFallback('Mod+J', FALLBACK_REVEAL_TERMINAL),
   }
 }
 
@@ -259,6 +272,7 @@ export function resolveShortcutBindingsFromSettings(
     taskQuickDispatch: cloneShortcutBinding(
       overrides.taskQuickDispatch ?? platformDefaults.taskQuickDispatch,
     ),
+    revealTerminal: cloneShortcutBinding(overrides.revealTerminal ?? platformDefaults.revealTerminal),
   }
 }
 
@@ -268,7 +282,8 @@ export function areShortcutBindingsEqual(left: ShortcutBindings, right: Shortcut
     equalsShortcutBinding(left.openContentSearch, right.openContentSearch) &&
     equalsShortcutBinding(left.editorFind, right.editorFind) &&
     equalsShortcutBinding(left.editorReplace, right.editorReplace) &&
-    equalsShortcutBinding(left.taskQuickDispatch, right.taskQuickDispatch)
+    equalsShortcutBinding(left.taskQuickDispatch, right.taskQuickDispatch) &&
+    equalsShortcutBinding(left.revealTerminal, right.revealTerminal)
   )
 }
 

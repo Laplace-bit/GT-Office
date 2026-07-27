@@ -14,6 +14,20 @@ export function resolveFocusStageStationVisibility(
   }
 }
 
+export function isSingleStationFocusLayout(
+  layoutMode: WorkbenchFocusLayoutMode,
+  visibleStationCount: number,
+): boolean {
+  return layoutMode === 'focus' && visibleStationCount === 1
+}
+
+export function preserveFocusTabOrder(
+  stationIds: string[],
+  visibleStationIds: Set<string>,
+): string[] {
+  return stationIds.filter((stationId) => visibleStationIds.has(stationId))
+}
+
 export function resolveRenderedActiveStationId(
   layoutMode: WorkbenchFocusLayoutMode,
   selectedStationId: string | null,

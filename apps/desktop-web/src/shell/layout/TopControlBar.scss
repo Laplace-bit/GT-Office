@@ -12,21 +12,22 @@
   gap: var(--vb-space-sm);
   padding: var(--vb-space-2xs) var(--vb-space-md);
   box-sizing: border-box;
-  border-radius: #{rem(14)};
+  border-radius: 0;
   background: var(--vb-glass-light);
   backdrop-filter: blur(#{rem(28)}) saturate(180%);
   -webkit-backdrop-filter: blur(#{rem(28)}) saturate(180%);
-  border: var(--vb-border-width) solid var(--vb-border-subtle);
-  box-shadow: var(--vb-shadow-sm);
+  border: 0;
+  border-bottom: var(--vb-border-width) solid var(--vb-border-subtle);
+  box-shadow: inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 72%, transparent);
   z-index: 100;
   transition:
-    background-color 180ms var(--vb-ease-smooth),
-    border-color 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth);
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
   user-select: none;
 
   &.native-window-top {
-    border-radius: 0 0 #{rem(14)} #{rem(14)};
+    border-radius: 0;
     padding-top: max(
       var(--vb-top-control-edge-inset),
       calc(env(titlebar-area-height, 0rem) - var(--vb-top-control-button-size))
@@ -192,26 +193,35 @@
   border: var(--vb-border-width) solid var(--vb-border);
   color: var(--vb-text-muted);
   transition:
-    background-color 140ms var(--vb-ease-smooth),
-    border-color 140ms var(--vb-ease-smooth),
-    box-shadow 140ms var(--vb-ease-smooth),
-    color 140ms var(--vb-ease-smooth),
-    transform 100ms var(--vb-ease-smooth);
+    opacity var(--vb-duration-fast) var(--vb-ease-out),
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out),
+    color var(--vb-duration-fast) var(--vb-ease-out),
+    transform var(--vb-duration-fast) var(--vb-ease-spring);
   position: relative;
 
-  &:hover {
-    background: var(--vb-card-hover-bg);
+  &:hover:not(:disabled) {
+    background: var(--vb-glass-lighter-hover);
+    border-color: var(--vb-border-strong);
     color: var(--vb-text);
+    opacity: 1;
     transform: translateY(calc(var(--vb-border-width) * -1));
-    box-shadow: var(--vb-shadow-sm);
+    box-shadow:
+      inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 78%, transparent),
+      var(--vb-shadow-sm);
   }
 
-  &:active {
+  &:active:not(:disabled) {
     transform: scale(0.96);
+    transition-duration: 80ms;
   }
 
   &:focus-visible {
     outline: none;
+    background: var(--vb-glass-lighter-hover);
+    border-color: color-mix(in srgb, var(--vb-accent) 38%, var(--vb-border));
+    color: var(--vb-text);
     box-shadow:
       0 0 0 #{rem(2)} color-mix(in srgb, var(--vb-accent) 28%, transparent),
       var(--vb-shadow-sm);
@@ -343,9 +353,12 @@
     background: transparent;
     box-shadow: none;
 
-    &:hover {
+    &:hover:not(:disabled),
+    &:focus-visible {
       background: color-mix(in srgb, var(--vb-text) 7%, transparent);
-      box-shadow: none;
+      box-shadow:
+        0 0 0 #{rem(2)} color-mix(in srgb, var(--vb-accent) 18%, transparent),
+        inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 56%, transparent);
     }
 
     &.active {
@@ -364,9 +377,7 @@
     background: var(--vb-surface-elevated);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow:
-      0 0 0 var(--vb-border-width) var(--vb-border-subtle),
-      0 #{rem(8)} #{rem(18)} rgba(15, 23, 42, 0.08);
+    box-shadow: inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 72%, transparent);
   }
 }
 
@@ -380,6 +391,7 @@
   }
 
   .vb-top-action-button:hover,
+  .vb-top-action-button:focus-visible,
   .vb-top-action-button:active {
     transform: none !important;
   }

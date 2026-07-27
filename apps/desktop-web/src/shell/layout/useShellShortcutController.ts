@@ -46,6 +46,7 @@ interface UseShellShortcutControllerInput {
   >
   shouldRouteFileEditorShortcutRef: MutableRefObject<(target: EventTarget | null) => boolean>
   activeWorkspaceIdRef: MutableRefObject<string | null>
+  revealActiveTerminalRef: MutableRefObject<() => void>
 }
 
 export interface ShellShortcutController {
@@ -70,6 +71,7 @@ export function useShellShortcutController({
   triggerFileEditorCommandRef,
   shouldRouteFileEditorShortcutRef,
   activeWorkspaceIdRef,
+  revealActiveTerminalRef,
 }: UseShellShortcutControllerInput): ShellShortcutController {
   const [uiPreferences, setUiPreferences] = useState(loadUiPreferences)
   const [shortcutBindings, setShortcutBindings] = useState(() => platformDefaultShortcutBindings)
@@ -113,6 +115,10 @@ export function useShellShortcutController({
               {
                 command: 'task.center.quick_dispatch',
                 keystroke: shortcutBindingToKeystroke(bindings.taskQuickDispatch),
+              },
+              {
+                command: 'terminal.reveal_active',
+                keystroke: shortcutBindingToKeystroke(bindings.revealTerminal),
               },
             ],
           },
@@ -306,6 +312,12 @@ export function useShellShortcutController({
                       normalizedRuntimeShortcuts.taskQuickDispatch,
                     ),
                   },
+                  {
+                    command: 'terminal.reveal_active',
+                    keystroke: shortcutBindingToKeystroke(
+                      normalizedRuntimeShortcuts.revealTerminal,
+                    ),
+                  },
                 ],
               },
             })
@@ -468,6 +480,16 @@ export function useShellShortcutController({
       const bindings = shortcutBindingsRef.current
       const isMacOs = nativeWindowTopMacOs
 
+      if (!event.isComposing && matchesShortcutEvent(event, bindings.revealTerminal, isMacOs)) {
+        if (isShortcutRepeat(event)) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        revealActiveTerminalRef.current()
+        return
+      }
+
       if (matchesShortcutEvent(event, bindings.taskQuickDispatch, isMacOs)) {
         if (isShortcutRepeat(event)) {
           return
@@ -545,7 +567,7 @@ export function useShellShortcutController({
     return () => {
       window.removeEventListener('keydown', onGlobalShortcut, { capture: true })
     }
-  }, [isShortcutRepeat, nativeWindowTopMacOs])
+  }, [isShortcutRepeat, nativeWindowTopMacOs, revealActiveTerminalRef])
 
   return {
     uiPreferences,

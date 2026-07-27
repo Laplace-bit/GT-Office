@@ -5,11 +5,11 @@
   flex-direction: column;
   background: var(--vb-surface-elevated);
   border: none;
-  border-radius: rem(18);
+  border-radius: rem(8);
   overflow: hidden;
   position: relative;
-  transition: border-color 160ms var(--vb-ease-smooth);
-  box-shadow: 0 0 0 rem(1) var(--vb-border-subtle), var(--vb-shadow-sm);
+  transition: border-color 140ms var(--vb-ease-smooth);
+  box-shadow: inset 0 0 0 rem(1) var(--vb-border-subtle);
   z-index: 1;
   isolation: isolate;
   contain: layout;
@@ -40,16 +40,12 @@
   }
 
   &:hover {
-    box-shadow: 0 0 0 rem(1) var(--vb-border-strong), var(--vb-shadow-md);
+    box-shadow: inset 0 0 0 rem(1) var(--vb-border-strong);
   }
 
   &.active {
     z-index: 10;
-    box-shadow:
-      0 0 0 rem(1.5) color-mix(in srgb, var(--vb-accent) 85%, white 15%),
-      0 0 0 rem(7) color-mix(in srgb, var(--vb-accent) 10%, transparent),
-      0 rem(18) rem(42) color-mix(in srgb, var(--vb-accent) 18%, transparent),
-      var(--vb-shadow-md);
+    box-shadow: inset 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-accent) 85%, white 15%);
 
     &::after {
       border-color: rgba(255, 255, 255, 0.1);

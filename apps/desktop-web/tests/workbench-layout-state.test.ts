@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  createInitialWorkbenchContainers,
   createWorkbenchContainer,
   reconcileWorkbenchContainers,
   restoreWorkbenchContainers,
@@ -19,7 +20,7 @@ const stations = [
   },
 ]
 
-test('workbench layout state restore keeps existing containers decoupled from canvas defaults', () => {
+test('workbench layout state restore defaults missing container layout to auto', () => {
   const restored = restoreWorkbenchContainers(
     [
       {
@@ -29,10 +30,6 @@ test('workbench layout state restore keeps existing containers decoupled from ca
     ],
     stations,
     () => 'generated-container-id',
-    {
-      mode: 'focus',
-      customLayout: { columns: 6, rows: 4 },
-    },
   )
 
   assert.equal(restored.length, 1)
@@ -40,7 +37,30 @@ test('workbench layout state restore keeps existing containers decoupled from ca
   assert.deepEqual(restored[0]?.customLayout, DEFAULT_WORKBENCH_CUSTOM_LAYOUT)
 })
 
-test('workbench layout state reconcile preserves container-local layout after default changes', () => {
+test('new workbench containers default to auto layout', () => {
+  const containers = createInitialWorkbenchContainers(stations, () => 'generated-container-id')
+
+  assert.equal(containers[0]?.layoutMode, 'auto')
+  assert.deepEqual(containers[0]?.customLayout, DEFAULT_WORKBENCH_CUSTOM_LAYOUT)
+})
+
+test('workbench restore keeps a saved layout mode over the auto default', () => {
+  const restored = restoreWorkbenchContainers(
+    [
+      {
+        id: 'container-1',
+        stationIds: ['station-1'],
+        layoutMode: 'focus',
+      },
+    ],
+    stations,
+    () => 'generated-container-id',
+  )
+
+  assert.equal(restored[0]?.layoutMode, 'focus')
+})
+
+test('workbench layout state reconcile preserves container-local layout', () => {
   const container = createWorkbenchContainer({
     id: 'container-1',
     stationIds: ['station-1'],
@@ -53,15 +73,27 @@ test('workbench layout state reconcile preserves container-local layout after de
     [container],
     stations,
     () => 'generated-container-id',
-    {
-      mode: 'focus',
-      customLayout: { columns: 4, rows: 2 },
-    },
   )
 
   assert.equal(reconciled.length, 1)
   assert.equal(reconciled[0]?.layoutMode, 'custom')
   assert.deepEqual(reconciled[0]?.customLayout, { columns: 1, rows: 3 })
+})
+
+test('reconciliation retains a container station order across inventory refreshes', () => {
+  const container = createWorkbenchContainer({
+    id: 'container-1',
+    stationIds: ['station-2', 'station-1'],
+    activeStationId: 'station-2',
+  })
+
+  const reconciled = reconcileWorkbenchContainers(
+    [container],
+    [{ id: 'station-1' }, { id: 'station-2' }],
+    () => 'generated-container-id',
+  )
+
+  assert.deepEqual(reconciled[0]?.stationIds, ['station-2', 'station-1'])
 })
 
 test('layout mode changes stay local to the targeted container', () => {

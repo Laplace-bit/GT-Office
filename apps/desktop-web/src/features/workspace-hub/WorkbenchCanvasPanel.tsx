@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -24,11 +25,12 @@ import {
   PictureInPicture2,
 } from 'lucide-react'
 import { StationCard } from './StationCard'
-import { StationActivityComet } from './StationActivityComet'
 import { resolveStationCardStatusMeta } from './station-card-header-model'
 import type { AgentStation } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
+  isSingleStationFocusLayout,
+  preserveFocusTabOrder,
   resolveFocusStageStationVisibility,
   resolveRenderedActiveStationId,
 } from './workbench-focus-layout-model'
@@ -38,7 +40,6 @@ import {
   type WorkbenchLayoutMode,
 } from './workbench-layout-model'
 import { resolveWorkbenchLayoutPresetVisual } from './workbench-layout-preset-visuals'
-import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -263,46 +264,6 @@ function buildPanelTitle(
     return activeStation.name
   }
   return t(locale, 'workbench.emptyCanvasTitle', { index: containerIndex + 1 })
-}
-
-function FocusRailItem({
-  locale,
-  station,
-  unreadCount,
-  onSelectStation,
-}: {
-  locale: Locale
-  station: AgentStation
-  unreadCount: number
-  onSelectStation: (stationId: string) => void
-}) {
-  const activitySignal = useStationActivitySignal(unreadCount)
-
-  return (
-    <button
-      type="button"
-      className="focus-rail-item"
-      onClick={() => onSelectStation(station.id)}
-      aria-label={t(locale, 'workbench.activeWindow')}
-      title={station.name}
-    >
-      <div className="focus-rail-item-header">
-        <div className="focus-rail-item-title">
-          <strong>{station.name}</strong>
-          <span>{station.tool}</span>
-        </div>
-        {activitySignal ? (
-          <StationActivityComet
-            locale={locale}
-            level={activitySignal}
-            size="compact"
-            className="focus-rail-item-comet"
-          />
-        ) : null}
-      </div>
-      <p className="focus-rail-item-path">{station.agentWorkdirRel}</p>
-    </button>
-  )
 }
 
 const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
@@ -578,13 +539,22 @@ function WorkbenchCanvasPanelView({
     return [...minimizedStationIds, restoringStationId]
   }, [minimizedStationIdSet, minimizedStationIds, restoringStationId])
   const dockStationIdSet = useMemo(() => new Set(dockStationIds), [dockStationIds])
+  const stationById = useMemo(
+    () => new Map(stations.map((station) => [station.id, station])),
+    [stations],
+  )
   const { targetVisibleStations, targetVisibleStationIds, dockStations } = useMemo(() => {
+    const orderedStationIds = preserveFocusTabOrder(container.stationIds, new Set(stationById.keys()))
     const nextTargetVisibleStations: AgentStation[] = []
     const nextTargetVisibleStationIds: string[] = []
     const nextDockStations: AgentStation[] = []
 
-    for (const station of stations) {
-      if (station.scope === 'designer') {
+    // container.stationIds is deliberately ordered by the workspace and drag model.
+    // Use it as the single source of truth for focus tabs instead of promoting the
+    // active station or inheriting incidental station-inventory ordering.
+    for (const stationId of orderedStationIds) {
+      const station = stationById.get(stationId)
+      if (!station || station.scope === 'designer') {
         continue
       }
       nextTargetVisibleStations.push(station)
@@ -601,17 +571,13 @@ function WorkbenchCanvasPanelView({
       targetVisibleStationIds: nextTargetVisibleStationIds,
       dockStations: nextDockStations,
     }
-  }, [dockStationIdSet, minimizedStationIdSet, roleFilter, stations])
+  }, [container.stationIds, dockStationIdSet, minimizedStationIdSet, roleFilter, stationById])
   const [displayedStationIds, setDisplayedStationIds] = useState<string[]>(() =>
     targetVisibleStationIds,
   )
   const displayedStationIdsRef = useRef(displayedStationIds)
   const [exitingStationSnapshots, setExitingStationSnapshots] = useState<ExitingStationSnapshot[]>([])
   const [enteringStationIds, setEnteringStationIds] = useState<string[]>([])
-  const stationById = useMemo(
-    () => new Map(stations.map((station) => [station.id, station])),
-    [stations],
-  )
   const displayedStations = useMemo(
     () =>
       displayedStationIds
@@ -1234,16 +1200,6 @@ function WorkbenchCanvasPanelView({
     normalizedCustomLayout.columns,
     normalizedCustomLayout.rows,
   ])
-  const focusGridStyle = useMemo<CSSProperties | undefined>(() => {
-    if (container.layoutMode !== 'focus' || displayedStations.length <= 1) {
-      return undefined
-    }
-    return {
-      gridTemplateColumns: 'minmax(0, 1fr) minmax(11rem, clamp(11rem, 28%, 22rem))',
-      gridTemplateRows: 'minmax(0, 1fr)',
-    }
-  }, [container.layoutMode, displayedStations.length])
-
   const updateCustomLayoutDimension = useCallback(
     (dimension: keyof WorkbenchCustomLayout, nextValue: number) => {
       const nextLayout = normalizeWorkbenchCustomLayout({
@@ -1263,6 +1219,43 @@ function WorkbenchCanvasPanelView({
       onSelectStation(container.id, stationId)
     },
     [container.id, onSelectStation],
+  )
+
+  const focusTabId = `workbench-focus-tabs-${container.id}`
+  const focusTabsVisible = container.layoutMode === 'focus' && displayedStations.length > 1 && !fullscreenStation
+  const handleFocusTabKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, stationId: string) => {
+      if (!focusTabsVisible) {
+        return
+      }
+      const currentIndex = displayedStations.findIndex((station) => station.id === stationId)
+      if (currentIndex < 0) {
+        return
+      }
+      const lastIndex = displayedStations.length - 1
+      const nextIndex =
+        event.key === 'ArrowRight'
+          ? (currentIndex + 1) % displayedStations.length
+          : event.key === 'ArrowLeft'
+            ? (currentIndex - 1 + displayedStations.length) % displayedStations.length
+            : event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? lastIndex
+                : null
+      if (nextIndex === null) {
+        return
+      }
+      event.preventDefault()
+      const nextStation = displayedStations[nextIndex]
+      if (!nextStation) {
+        return
+      }
+      handleSelectStation(nextStation.id)
+      const nextTab = document.getElementById(`${focusTabId}-${nextStation.id}`)
+      nextTab?.focus()
+    },
+    [displayedStations, focusTabId, focusTabsVisible, handleSelectStation],
   )
 
   const handleEnterFullscreen = useCallback(
@@ -1476,7 +1469,13 @@ function WorkbenchCanvasPanelView({
         .join(' ')}
     >
       <header
-        className={['canvas-header', container.mode === 'floating' && !detachedReadonly ? 'draggable' : ''].join(' ')}
+        className={[
+          'canvas-header',
+          focusTabsVisible ? 'focus-header' : '',
+          container.mode === 'floating' && !detachedReadonly ? 'draggable' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         onPointerDown={
           (container.mode === 'floating' && !detachedReadonly && onBeginFloatingDrag) || onBeginNativeWindowDrag
             ? (event) => {
@@ -1496,19 +1495,48 @@ function WorkbenchCanvasPanelView({
         }
       >
         <div className="canvas-header-main">
-          <div className="canvas-header-title">
-            <div className="canvas-header-title-row">
-              {modeLabel ? <span className={['canvas-mode-badge', container.mode].join(' ')}>{modeLabel}</span> : null}
-              <h3>{panelTitle}</h3>
-              <div className="canvas-header-meta" role="list" aria-label={t(locale, 'workbench.activeWindow')}>
-                <span className="canvas-header-pill" role="listitem" title={t(locale, 'workbench.stationCount', { count: displayedStations.length })}>
-                  <AppIcon name="stations" className="canvas-header-pill-icon" aria-hidden="true" />
-                  <strong className="canvas-header-pill-value">{displayedStations.length}</strong>
-                  <span className="vb-sr-only">{t(locale, 'workbench.stationCount', { count: displayedStations.length })}</span>
-                </span>
+          {!focusTabsVisible ? (
+            <div className="canvas-header-title">
+              <div className="canvas-header-title-row">
+                {modeLabel ? <span className={['canvas-mode-badge', container.mode].join(' ')}>{modeLabel}</span> : null}
+                <h3>{panelTitle}</h3>
+                <div className="canvas-header-meta" role="list" aria-label={t(locale, 'workbench.activeWindow')}>
+                  <span className="canvas-header-pill" role="listitem" title={t(locale, 'workbench.stationCount', { count: displayedStations.length })}>
+                    <AppIcon name="stations" className="canvas-header-pill-icon" aria-hidden="true" />
+                    <strong className="canvas-header-pill-value">{displayedStations.length}</strong>
+                    <span className="vb-sr-only">{t(locale, 'workbench.stationCount', { count: displayedStations.length })}</span>
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          ) : null}
+
+          {focusTabsVisible ? (
+            <div className="focus-tab-list" role="tablist" aria-label={t(locale, 'workbench.activeWindow')}>
+              {displayedStations.map((station) => {
+                const selected = station.id === selectedStationId
+                return (
+                  <button
+                    key={station.id}
+                    id={`${focusTabId}-${station.id}`}
+                    type="button"
+                    role="tab"
+                    className={['focus-tab', selected ? 'active' : ''].join(' ')}
+                    aria-selected={selected}
+                    aria-controls={`${focusTabId}-panel`}
+                    tabIndex={selected ? 0 : -1}
+                    title={`${station.name} · ${station.tool}`}
+                    onClick={() => handleSelectStation(station.id)}
+                    onKeyDown={(event) => handleFocusTabKeyDown(event, station.id)}
+                  >
+                    <span className="focus-tab-monogram" aria-hidden="true">{station.name.slice(0, 1).toUpperCase()}</span>
+                    <span className="focus-tab-label">{station.name}</span>
+                    <span className="vb-sr-only">{station.tool}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
 
           <div className="canvas-header-actions" role="group" aria-label={t(locale, 'workbench.activeWindow')}>
             <div className="canvas-layout-preset-group" role="group" aria-label={t(locale, 'workbench.layoutPreset')}>
@@ -1602,10 +1630,21 @@ function WorkbenchCanvasPanelView({
               )}
           </div>
         ) : container.layoutMode === 'focus' ? (
-          <div className="station-grid focus-mode" ref={gridRef} style={focusGridStyle}>
+          <div
+            className={[
+              'station-grid',
+              'focus-mode',
+              isSingleStationFocusLayout(container.layoutMode, displayedStations.length) ? 'single-station-mode' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            ref={gridRef}
+          >
             <div
+              id={`${focusTabId}-panel`}
               className="focus-main"
-              style={displayedStations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}
+              role="tabpanel"
+              aria-labelledby={selectedStationId ? `${focusTabId}-${selectedStationId}` : undefined}
             >
               <div className="focus-main-stage">
                 {stations
@@ -1621,21 +1660,6 @@ function WorkbenchCanvasPanelView({
                   })}
               </div>
             </div>
-            {displayedStations.length > 1 ? (
-              <div className="focus-ring" style={{ gridColumn: '2 / 3', gridRow: '1 / 2' }}>
-                {displayedStations
-                  .filter((station) => station.id !== selectedStationId)
-                  .map((station) => (
-                    <FocusRailItem
-                      key={station.id}
-                      locale={locale}
-                      station={station}
-                      unreadCount={terminalByStation[station.id]?.unreadCount ?? 0}
-                      onSelectStation={(stationId) => onSelectStation(container.id, stationId)}
-                    />
-                  ))}
-              </div>
-            ) : null}
           </div>
         ) : (
           <div

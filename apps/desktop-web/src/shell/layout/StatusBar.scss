@@ -6,19 +6,20 @@
   gap: var(--vb-space-md);
   padding: var(--vb-space-2xs) var(--vb-space-lg);
   min-height: #{rem(36)};
-  border-radius: #{rem(14)};
+  border-radius: 0;
   background: var(--vb-glass-light);
   backdrop-filter: blur(#{rem(20)}) saturate(180%);
   -webkit-backdrop-filter: blur(#{rem(20)}) saturate(180%);
-  border: var(--vb-border-width) solid var(--vb-border-subtle);
-  box-shadow: var(--vb-shadow-sm);
+  border: 0;
+  border-top: var(--vb-border-width) solid var(--vb-border-subtle);
+  box-shadow: inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 72%, transparent);
   color: var(--vb-text-muted);
   font-size: #{rem(11.5)};
   font-weight: 500;
   transition:
-    background-color 180ms var(--vb-ease-smooth),
-    border-color 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth);
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
   user-select: none;
   z-index: 10;
 }
@@ -96,12 +97,13 @@
     border-radius: #{rem(7)};
     background: color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent);
     box-shadow: inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-border-subtle) 76%, transparent);
-    transform: none !important;
     contain: layout paint;
     transition:
-      background-color 140ms var(--vb-ease-smooth),
-      box-shadow 140ms var(--vb-ease-smooth),
-      color 140ms var(--vb-ease-smooth);
+      background-color var(--vb-duration-fast) var(--vb-ease-out),
+      border-color var(--vb-duration-fast) var(--vb-ease-out),
+      box-shadow var(--vb-duration-fast) var(--vb-ease-out),
+      color var(--vb-duration-fast) var(--vb-ease-out),
+      transform var(--vb-duration-fast) var(--vb-ease-spring);
 
     &:hover,
     &:focus-visible {
@@ -116,6 +118,7 @@
       gap: #{rem(5)} !important;
       padding: #{rem(2)} #{rem(6)} #{rem(2)} #{rem(3)} !important;
       background: color-mix(in srgb, var(--vb-accent) 9%, var(--vb-glass-lighter));
+      transform: translateY(calc(var(--vb-border-width) * -1));
       box-shadow:
         inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle)),
         0 #{rem(2)} #{rem(6)} color-mix(in srgb, black 6%, transparent);
@@ -150,6 +153,8 @@
       min-width: #{rem(108)} !important;
       max-width: #{rem(108)} !important;
       height: #{rem(24)} !important;
+      transform: scale(0.96);
+      transition-duration: 80ms;
       background: color-mix(in srgb, var(--vb-accent) 13%, var(--vb-glass-lighter));
     }
   }
@@ -225,6 +230,12 @@
     .station-minimized-dock-icon {
       transition: none !important;
     }
+
+    .station-minimized-dock-item:hover,
+    .station-minimized-dock-item:focus-visible,
+    .station-minimized-dock-item:active {
+      transform: none !important;
+    }
   }
 }
 
@@ -269,12 +280,15 @@
   min-width: #{rem(120)};
   max-width: #{rem(240)};
   transition:
-    background-color 140ms var(--vb-ease-smooth),
-    border-color 140ms var(--vb-ease-smooth);
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
 
-  &:hover {
+  &:not(.status-bar__branch-field--disabled):hover,
+  &:not(.status-bar__branch-field--disabled):focus-within {
     background: var(--vb-glass-lighter-hover);
     border-color: var(--vb-border-strong);
+    box-shadow: inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 72%, transparent);
   }
 }
 
@@ -313,8 +327,7 @@
     background: var(--vb-surface-elevated);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow: 0 0 0 var(--vb-border-width) var(--vb-border-subtle),
-    0 #{rem(8)} #{rem(18)} rgba(15, 23, 42, 0.08);
+    box-shadow: none;
   }
 }
 

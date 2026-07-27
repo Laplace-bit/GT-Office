@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  isSingleStationFocusLayout,
+  preserveFocusTabOrder,
   resolveFocusStageStationVisibility,
   resolveRenderedActiveStationId,
 } from '../src/features/workspace-hub/workbench-focus-layout-model.js'
@@ -33,6 +35,21 @@ test('focus layout does not treat parked or exiting slots as interactive blocker
     focusHidden: true,
     inert: false,
   })
+})
+
+test('focus tabs retain the container order when a different station becomes active', () => {
+  const visible = new Set(['station-a', 'station-b', 'station-c'])
+
+  assert.deepEqual(
+    preserveFocusTabOrder(['station-b', 'station-a', 'station-c'], visible),
+    ['station-b', 'station-a', 'station-c'],
+  )
+})
+
+test('a single visible station uses the full-size focus stage', () => {
+  assert.equal(isSingleStationFocusLayout('focus', 1), true)
+  assert.equal(isSingleStationFocusLayout('focus', 2), false)
+  assert.equal(isSingleStationFocusLayout('auto', 1), false)
 })
 
 test('focus layout renders the selected station as active even when the global active station differs', () => {

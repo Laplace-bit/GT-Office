@@ -53,6 +53,7 @@ export function ActivityRail({ items, activeId, onSelect, locale }: ActivityRail
             className={`activity-rail-icon-btn ${item.id === activeId ? 'active' : ''}`}
             onClick={() => onSelect(item.id)}
             aria-label={item.label}
+            data-tooltip={item.label}
             title={item.label}
           >
             <span className="activity-rail-icon">

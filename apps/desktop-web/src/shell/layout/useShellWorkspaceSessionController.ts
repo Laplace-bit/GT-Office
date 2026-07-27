@@ -14,8 +14,6 @@ import {
   type AgentStation,
   type WorkbenchContainerModel,
   type WorkbenchContainerSnapshot,
-  type WorkbenchCustomLayout,
-  type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
 import {
   buildWorkspaceSessionFilePath,
@@ -99,10 +97,6 @@ interface UseShellWorkspaceSessionControllerInput {
   workbenchContainerCounterRef: MutableRefObject<number>
   workbenchContainerSnapshotEntries: WorkbenchContainerSnapshot[]
   workbenchContainerSnapshotSignature: string
-  canvasLayoutMode: WorkbenchLayoutMode
-  canvasCustomLayout: WorkbenchCustomLayout
-  canvasLayoutModeRef: MutableRefObject<WorkbenchLayoutMode>
-  canvasCustomLayoutRef: MutableRefObject<WorkbenchCustomLayout>
 
   // Navigation state
   activeNavId: NavItemId
@@ -217,10 +211,6 @@ export function useShellWorkspaceSessionController({
   workbenchContainerCounterRef: _workbenchContainerCounterRef,
   workbenchContainerSnapshotEntries,
   workbenchContainerSnapshotSignature,
-  canvasLayoutMode,
-  canvasCustomLayout,
-  canvasLayoutModeRef,
-  canvasCustomLayoutRef,
   activeNavId,
   setActiveNavId,
   activeStationId,
@@ -431,10 +421,7 @@ export function useShellWorkspaceSessionController({
       resetFileState()
       setPinnedWorkbenchContainerId(null)
       setWorkbenchContainers(
-        createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId, {
-          mode: canvasLayoutModeRef.current,
-          customLayout: canvasCustomLayoutRef.current,
-        }),
+        createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId),
       )
       externalChannelController.clearStationTaskSignals()
       taskDispatchController.setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
@@ -736,22 +723,11 @@ export function useShellWorkspaceSessionController({
       const pendingSnapshots = pendingWorkbenchContainerSnapshotsRef.current
       if (pendingSnapshots) {
         pendingWorkbenchContainerSnapshotsRef.current = null
-        return restoreWorkbenchContainers(
-          pendingSnapshots,
-          stations,
-          buildDefaultWorkbenchContainerId,
-          {
-            mode: canvasLayoutMode,
-            customLayout: canvasCustomLayout,
-          },
-        )
+        return restoreWorkbenchContainers(pendingSnapshots, stations, buildDefaultWorkbenchContainerId)
       }
-      return reconcileWorkbenchContainers(prev, stations, buildDefaultWorkbenchContainerId, {
-        mode: canvasLayoutMode,
-        customLayout: canvasCustomLayout,
-      })
+      return reconcileWorkbenchContainers(prev, stations, buildDefaultWorkbenchContainerId)
     })
-  }, [canvasCustomLayout, canvasLayoutMode, stations])
+  }, [stations])
 
   // Active station in container sync effect
   useEffect(() => {
@@ -922,10 +898,6 @@ export function useShellWorkspaceSessionController({
               restored.workbenchContainers,
               stationsRef.current,
               buildDefaultWorkbenchContainerId,
-              {
-                mode: canvasLayoutMode,
-                customLayout: canvasCustomLayout,
-              },
             ),
           )
         }
@@ -1036,8 +1008,6 @@ export function useShellWorkspaceSessionController({
     }
   }, [
     activeWorkspaceId,
-    canvasCustomLayout,
-    canvasLayoutMode,
     captureActiveWorkspaceTerminalDocument,
     loadFileContentRef,
     stationsLoadedWorkspaceId,
