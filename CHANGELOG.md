@@ -1,3 +1,9 @@
+## v0.7.5 (2026-07-28)
+
+- a851ac1 Enhance quick dispatch rail and fix terminal presentation
+- a60375d fix(workspace): keep terminal and fullscreen state instant on workspace switch
+- 00a9b3f Unify station selection border
+
 ## v0.7.4 (2026-07-27)
 
 - 032bf60 Polish workbench layout and shell chrome
