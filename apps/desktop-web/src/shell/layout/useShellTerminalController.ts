@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,6 +64,9 @@ import {
   takeStationTerminalOutputFlushFrameEntries,
   takeStationTerminalOutputFlushEntries,
   waitForStationTerminalFrameFlush,
+  peekParkedStationTerminalHost,
+  disposeParkedStationTerminalHost,
+  disposeAllParkedStationTerminalHosts,
   type BufferedStationInputController,
   type SessionOwnedRestoreState,
   type TerminalChunkDecoder,
@@ -299,6 +303,10 @@ export interface ShellTerminalController {
   // Terminal document
   captureActiveWorkspaceTerminalDocument: (workspaceId: string | null) => void
   resolveWorkspaceTerminalDocument: (workspaceId: string | null, stationsForWorkspace: AgentStation[]) => WorkspaceTerminalSessionDocument
+  presentWorkspaceTerminalDocument: (
+    workspaceId: string | null,
+    stationsForWorkspace: AgentStation[],
+  ) => WorkspaceTerminalSessionDocument | null
   persistActiveWorkspaceTerminalDocument: () => void
   suspendWorkspaceTerminalSessions: (workspaceId: string | null) => void
   recoverWorkspaceTerminalSessions: (workspaceId: string | null) => void
@@ -534,34 +542,6 @@ export function useShellTerminalController({
   useEffect(() => {
     stationTerminalsRef.current = stationTerminals
   }, [stationTerminals])
-
-  useEffect(() => {
-    if (stations.length === 0) {
-      return
-    }
-    setStationTerminals((prev) => {
-      let changed = false
-      const next = { ...prev }
-      const initialRuntimeById = createInitialStationTerminals(stations)
-      stations.forEach((station) => {
-        if (next[station.id]) {
-          return
-        }
-        next[station.id] = initialRuntimeById[station.id]
-        changed = true
-      })
-      if (changed) {
-        stationTerminalsRef.current = next
-      }
-      return changed ? next : prev
-    })
-    stations.forEach((station) => {
-      if (stationTerminalOutputCacheRef.current[station.id] !== undefined) {
-        return
-      }
-      stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
-    })
-  }, [stations])
 
   // ── Detached projection helpers ───────────────────────────────────────
   const hasDetachedProjectionTargets = useCallback(() => {
@@ -833,6 +813,16 @@ export function useShellTerminalController({
         )
         document.outputRevision[pending.stationId] =
           (document.outputRevision[pending.stationId] ?? 0) + Math.max(1, textChunks.length)
+        // Keep parked xterm hosts warm while their workspace is hidden so reclaim
+        // does not need a full serialize/restore pass on the next presentation.
+        const parkedHost = peekParkedStationTerminalHost(pending.workspaceId, pending.stationId)
+        if (
+          parkedHost &&
+          parkedHost.sessionId === pending.sessionId &&
+          parkedHost.sink
+        ) {
+          void parkedHost.sink.write(chunk)
+        }
       }
       const runtime = document.stationTerminals[pending.stationId]
       if (runtime && pending.unreadDelta > 0) {
@@ -988,6 +978,115 @@ export function useShellTerminalController({
     },
     [flushCachedTerminalOutputAppendQueue],
   )
+
+  /**
+   * Synchronously install a workspace terminal document into the active React
+   * surface. This must run in the same update as presentation switches so the
+   * first painted frame already has live sessionIds (no idle/history flash).
+   */
+  const presentWorkspaceTerminalDocument = useCallback(
+    (workspaceId: string | null, stationsForWorkspace: AgentStation[]) => {
+      if (!workspaceId || stationsForWorkspace.length === 0) {
+        return null
+      }
+      const terminalDocument = resolveWorkspaceTerminalDocument(workspaceId, stationsForWorkspace)
+      const stationIdSet = new Set(stationsForWorkspace.map((station) => station.id))
+
+      stationTerminalsRef.current = { ...terminalDocument.stationTerminals }
+      stationTerminalOutputCacheRef.current = { ...terminalDocument.outputCache }
+      stationTerminalOutputRevisionRef.current = { ...terminalDocument.outputRevision }
+      stationTerminalRestoreStateRef.current = { ...terminalDocument.restoreState }
+      sessionStationRef.current = { ...terminalDocument.sessionStation }
+      terminalSessionSeqRef.current = { ...terminalDocument.sessionSeq }
+      terminalSessionVisibilityRef.current = { ...terminalDocument.sessionVisibility }
+
+      Object.keys(stationTerminalPendingReplayRef.current).forEach((stationId) => {
+        if (!stationIdSet.has(stationId)) {
+          delete stationTerminalPendingReplayRef.current[stationId]
+        }
+      })
+      stationsForWorkspace.forEach((station) => {
+        if (!stationTerminalOutputCacheRef.current[station.id]) {
+          stationTerminalOutputCacheRef.current[station.id] = ''
+        }
+      })
+      Object.entries(sessionStationRef.current).forEach(([sessionId, stationId]) => {
+        if (!stationIdSet.has(stationId)) {
+          delete sessionStationRef.current[sessionId]
+          delete terminalSessionSeqRef.current[sessionId]
+          delete terminalOutputQueueRef.current[sessionId]
+          delete terminalSessionVisibilityRef.current[sessionId]
+        }
+      })
+      stationTerminalsRef.current = Object.keys(stationTerminalsRef.current).reduce<
+        Record<string, StationTerminalRuntime>
+      >((acc, stationId) => {
+        if (stationIdSet.has(stationId)) {
+          acc[stationId] = stationTerminalsRef.current[stationId]
+        } else {
+          stationTerminalInputControllerRef.current?.clear(stationId)
+          delete ensureStationTerminalSessionInFlightRef.current[stationId]
+        }
+        return acc
+      }, {})
+
+      setStationTerminals({ ...stationTerminalsRef.current })
+      captureActiveWorkspaceTerminalDocument(workspaceId)
+      return terminalDocument
+    },
+    [captureActiveWorkspaceTerminalDocument, resolveWorkspaceTerminalDocument],
+  )
+
+  // Seed / re-present terminal runtimes before paint so StationCard never shows
+  // session history for stations that already own a cached live session.
+  useLayoutEffect(() => {
+    if (stations.length === 0) {
+      return
+    }
+    const seedWorkspaceId = activeWorkspaceIdRef.current
+    const cachedDocument = seedWorkspaceId
+      ? workspaceTerminalCacheRef.current[seedWorkspaceId]
+      : null
+    if (seedWorkspaceId && cachedDocument) {
+      const needsPresent = stations.some((station) => {
+        const live = stationTerminalsRef.current[station.id]
+        const cached = cachedDocument.stationTerminals[station.id]
+        if (!cached) {
+          return !live
+        }
+        if (!cached.sessionId) {
+          return !live
+        }
+        return live?.sessionId !== cached.sessionId || !live?.sessionId
+      })
+      if (needsPresent) {
+        presentWorkspaceTerminalDocument(seedWorkspaceId, stations)
+      }
+      return
+    }
+    setStationTerminals((prev) => {
+      let changed = false
+      const next = { ...prev }
+      const initialRuntimeById = createInitialStationTerminals(stations)
+      stations.forEach((station) => {
+        if (next[station.id]) {
+          return
+        }
+        next[station.id] = initialRuntimeById[station.id]
+        changed = true
+      })
+      if (changed) {
+        stationTerminalsRef.current = next
+      }
+      return changed ? next : prev
+    })
+    stations.forEach((station) => {
+      if (stationTerminalOutputCacheRef.current[station.id] !== undefined) {
+        return
+      }
+      stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
+    })
+  }, [activeWorkspaceIdRef, presentWorkspaceTerminalDocument, stations])
 
   const persistActiveWorkspaceTerminalDocument = useCallback(() => {
     captureActiveWorkspaceTerminalDocument(presentedWorkspaceIdRef.current)
@@ -1584,7 +1683,14 @@ export function useShellTerminalController({
     () => (stationId, sink, meta) => {
       flushPendingStationTerminalOutput(stationId)
       if (!sink) {
-        if (meta?.sourceSink && stationTerminalSinkRef.current[stationId] !== meta.sourceSink) {
+        // Workspace presentation switch clears active sinks before React unmounts the
+        // terminal. Keep-alive park unbinds still need to capture restore state even
+        // though the sink is no longer registered on the active ref.
+        if (
+          meta?.sourceSink &&
+          stationTerminalSinkRef.current[stationId] !== meta.sourceSink &&
+          !meta?.parkLiveBuffer
+        ) {
           return
         }
         delete stationTerminalPendingReplayRef.current[stationId]
@@ -1603,14 +1709,18 @@ export function useShellTerminalController({
           : null
         if (capturedRestoreState) {
           stationTerminalRestoreStateRef.current[stationId] = capturedRestoreState
-        } else {
+        } else if (!meta?.parkLiveBuffer) {
           delete stationTerminalRestoreStateRef.current[stationId]
         }
-        delete stationTerminalSinkRef.current[stationId]
+        if (stationTerminalSinkRef.current[stationId] === meta?.sourceSink || !meta?.sourceSink) {
+          delete stationTerminalSinkRef.current[stationId]
+        }
         return
       }
       const previousSink = stationTerminalSinkRef.current[stationId]
+      const preserveLiveBuffer = Boolean(meta?.preserveLiveBuffer)
       if (
+        !preserveLiveBuffer &&
         !shouldReplayStationTerminalSinkBinding({
           previousSink,
           nextSink: sink,
@@ -1620,6 +1730,42 @@ export function useShellTerminalController({
         return
       }
       stationTerminalSinkRef.current[stationId] = sink
+      // Reclaimed workspace-switch hosts already hold the live VT buffer (and any
+      // background writes applied while parked). Skip full restore/reset so the
+      // switch stays instant; only drain ops that arrived during rebind.
+      if (preserveLiveBuffer) {
+        const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
+        if (!pendingReplay || pendingReplay.ops.length === 0) {
+          delete stationTerminalPendingReplayRef.current[stationId]
+          return
+        }
+        const replayVersion = pendingReplay.version
+        scheduleTerminalReplay(
+          {
+            stationId,
+            sink,
+            replayVersion,
+            run: async () => {
+              if (
+                stationTerminalSinkRef.current[stationId] !== sink ||
+                stationTerminalPendingReplayRef.current[stationId]?.version !== replayVersion
+              ) {
+                return
+              }
+              const pendingOps = compactStationTerminalPendingReplayOps(pendingReplay.ops, {
+                writeChunkCharLimit: TERMINAL_REPLAY_WRITE_CHUNK_CHAR_LIMIT,
+              })
+              delete stationTerminalPendingReplayRef.current[stationId]
+              await drainStationTerminalPendingReplayOps(sink, pendingOps, {
+                shouldContinue: () => stationTerminalSinkRef.current[stationId] === sink,
+                yieldBetweenWrites: waitForNextTerminalReplayFrame,
+              })
+            },
+          },
+          meta?.restorePriority === 'active' ? 'active' : 'background',
+        )
+        return
+      }
       const station = stationsRef.current.find((item) => item.id === stationId)
       const cachedContent = stationTerminalOutputCacheRef.current[stationId] ?? getStationIdleBanner(station)
       const outputRevision = stationTerminalOutputRevisionRef.current[stationId] ?? 0
@@ -4175,6 +4321,7 @@ export function useShellTerminalController({
       stationTerminalInputControllerRef.current?.clear(stationId)
       delete stationTerminalRestoreStateRef.current[stationId]
       delete protectedAgentSessionByStationRef.current[stationId]
+      disposeParkedStationTerminalHost(workspaceId, stationId)
 
       setStations((prev) => prev.filter((station) => station.id !== stationId))
       setStationTerminals((prev) => {
@@ -4709,6 +4856,7 @@ export function useShellTerminalController({
       scheduledTerminalReplayRunningRef.current = false
       cancelDetachedProjectionOutputAppendFlush()
       detachedProjectionOutputAppendQueueRef.current = {}
+      disposeAllParkedStationTerminalHosts()
 
       if (desktopApi.isTauriRuntime()) {
         Object.entries(registeredAgentRuntimeRef.current).forEach(([agentId, runtime]) => {
@@ -4799,6 +4947,7 @@ export function useShellTerminalController({
     // Terminal document
     captureActiveWorkspaceTerminalDocument,
     resolveWorkspaceTerminalDocument,
+    presentWorkspaceTerminalDocument,
     persistActiveWorkspaceTerminalDocument,
     suspendWorkspaceTerminalSessions,
     recoverWorkspaceTerminalSessions,

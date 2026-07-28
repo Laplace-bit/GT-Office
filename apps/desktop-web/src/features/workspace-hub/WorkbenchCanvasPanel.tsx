@@ -744,10 +744,20 @@ function WorkbenchCanvasPanelView({
       ),
     [container.layoutMode, effectiveActiveStationId, fullscreenStationIdRaw, selectedStationId],
   )
-  const fullscreenStation = useMemo(
-    () => displayedStations.find((station) => station.id === fullscreenStationIdRaw) ?? null,
-    [displayedStations, fullscreenStationIdRaw],
-  )
+  // Prefer the live inventory over animated displayedStationIds. During workspace
+  // switches displayedStationIds can lag for a frame; looking only there would
+  // clear a restored fullscreen target and flash the grid layout first.
+  const fullscreenStation = useMemo(() => {
+    if (!fullscreenStationIdRaw) {
+      return null
+    }
+    return (
+      displayedStations.find((station) => station.id === fullscreenStationIdRaw) ??
+      targetVisibleStations.find((station) => station.id === fullscreenStationIdRaw) ??
+      stationById.get(fullscreenStationIdRaw) ??
+      null
+    )
+  }, [displayedStations, fullscreenStationIdRaw, stationById, targetVisibleStations])
   const panelTitle = useMemo(
     () =>
       buildPanelTitle(
@@ -1325,8 +1335,23 @@ function WorkbenchCanvasPanelView({
     if (fullscreenStation) {
       return
     }
+    // Only drop fullscreen when the station is truly gone from the workspace.
+    // Display-list lag during switches must not collapse a restored maximize state.
+    if (
+      stations.some((station) => station.id === fullscreenStationIdRaw) ||
+      container.stationIds.includes(fullscreenStationIdRaw)
+    ) {
+      return
+    }
     onFullscreenStationChange(container.id, null)
-  }, [container.id, fullscreenStation, fullscreenStationIdRaw, onFullscreenStationChange])
+  }, [
+    container.id,
+    container.stationIds,
+    fullscreenStation,
+    fullscreenStationIdRaw,
+    onFullscreenStationChange,
+    stations,
+  ])
 
   const resolveStationSlotMode = useCallback(
     (stationId: string): 'stable' | 'entering' | 'exiting' | 'parked' => {

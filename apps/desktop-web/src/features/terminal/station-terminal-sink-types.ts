@@ -14,6 +14,17 @@ export interface StationTerminalSinkBindingMeta {
   restoreRows?: number
   restoreViewportY?: number | null
   restorePriority?: 'active' | 'background'
+  /**
+   * When true, the sink is being unbound because the live xterm host was parked
+   * for workspace keep-alive. Restore state is still captured for document cache
+   * fallback, but the terminal buffer remains alive out of tree.
+   */
+  parkLiveBuffer?: boolean
+  /**
+   * When true, the sink is rebinding to a reclaimed parked host whose buffer is
+   * already up to date. Skip full restore/reset replay.
+   */
+  preserveLiveBuffer?: boolean
 }
 
 export type StationTerminalSinkBindingHandler = (

@@ -42,6 +42,7 @@ import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import {
   loadPerformanceDebugState,
 } from '../state/performance-debug'
+import { mergeStationTerminalRuntimesForPresentation } from '../state/station-terminal-runtime-presentation'
 import {
   SHELL_LAYOUT_STORAGE_KEY,
   buildDefaultWorkbenchContainerId,
@@ -307,6 +308,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
 
   const {
     stationTerminals,
+    workspaceTerminalCacheRef,
     toolCommandsByStationId,
     isBatchLaunchingAgents,
     pendingStationActionSheet,
@@ -521,6 +523,33 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     [gitSummary, presentedWorkspaceId],
   )
 
+  // Resolve terminal runtimes for the first paint of a workspace switch. React
+  // state may still be idle/missing while the cached document already knows the
+  // live sessions — merging here keeps StationCard on the terminal surface
+  // instead of flashing session history.
+  const terminalByStationForPresentation = useMemo(() => {
+    const cacheWorkspaceId =
+      activeWorkspaceId && stationsLoadedWorkspaceId === activeWorkspaceId
+        ? activeWorkspaceId
+        : presentedWorkspaceId
+    const cachedDocument = cacheWorkspaceId
+      ? workspaceTerminalCacheRef.current[cacheWorkspaceId]
+      : null
+    return mergeStationTerminalRuntimesForPresentation({
+      stations,
+      liveRuntimes: stationTerminals,
+      cachedDocument,
+      workspaceId: cacheWorkspaceId,
+    })
+  }, [
+    activeWorkspaceId,
+    presentedWorkspaceId,
+    stationTerminals,
+    stations,
+    stationsLoadedWorkspaceId,
+    workspaceTerminalCacheRef,
+  ])
+
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
   const stationNameMap = useMemo(
@@ -533,13 +562,10 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     [stations],
   )
 
-  useEffect(() => {
-    stationsRef.current = stations
-  }, [stations])
-
-  useEffect(() => {
-    workbenchContainersRef.current = workbenchContainers
-  }, [workbenchContainers])
+  // Keep inventory refs synchronous with the current render so workspace-switch
+  // capture paths (especially fullscreen/maximize) never read a stale frame.
+  stationsRef.current = stations
+  workbenchContainersRef.current = workbenchContainers
 
   useEffect(() => {
     setPinnedWorkbenchContainerId((prev) => {
@@ -1206,7 +1232,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     workspaceCwd: presentedWorkspaceRoot,
     stations,
     activeStationId,
-    terminalByStation: stationTerminals,
+    terminalByStation: terminalByStationForPresentation,
     agentRunningByStationId: stationAgentRunningById,
     taskSignalByStationId: externalChannelController.stationTaskSignals,
     channelBotBindingsByStationId,

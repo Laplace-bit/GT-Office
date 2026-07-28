@@ -46,3 +46,27 @@ test('waits for the helper textarea to anchor on-screen before programmatic focu
     'focus attempt must wait for the helper textarea to anchor before focusing',
   )
 })
+
+test('parks live xterm hosts across workspace switches instead of disposing them', () => {
+  const source = readTerminalSource()
+
+  assert.match(source, /reclaimStationTerminalHost/)
+  assert.match(source, /parkStationTerminalHost/)
+  assert.match(source, /preserveLiveBuffer:\s*preservedLiveBuffer/)
+  assert.match(source, /parkLiveBuffer:\s*true/)
+  assert.match(
+    source,
+    /forceDisposeTerminalRef\.current\s*=\s*true/,
+    'renderer recovery must force dispose rather than park a corrupted host',
+  )
+  assert.match(
+    source,
+    /useLayoutEffect\(\(\) => \{\s*const host = hostRef\.current/,
+    'parked hosts must reparent before paint via useLayoutEffect',
+  )
+  assert.match(
+    source,
+    /shouldPrioritizeStationTerminalRuntimeInit\(\s*isActive,\s*stateRaw,\s*sessionId,?\s*\)/,
+    'live sessions must prioritize runtime init on first paint after workspace switch',
+  )
+})

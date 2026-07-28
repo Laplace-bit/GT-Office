@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import {
   createInitialWorkbenchContainers,
   reconcileWorkbenchContainers,
   restoreWorkbenchContainers,
+  serializeWorkbenchContainers,
   type AgentStation,
   type WorkbenchContainerModel,
   type WorkbenchContainerSnapshot,
@@ -28,6 +30,7 @@ import {
 import {
   createInitialTaskDraft,
 } from '@features/task-center'
+import { disposeParkedStationTerminalHostsForWorkspace } from '@features/terminal/station-terminal-host-pool'
 import { addNotification } from '@/stores/notification'
 import { desktopApi } from '../integration/desktop-api'
 import { pickDirectory } from '../integration/directory-picker'
@@ -36,6 +39,15 @@ import type { NavItemId } from './navigation-model'
 import type { UiPreferences } from '../state/ui-preferences'
 import { reconcileWorkspaceTerminalRestoredSessions } from '../state/workspace-terminal-session-reconcile'
 import {
+  captureWorkspacePresentationCacheEntry,
+  putWorkspacePresentationCacheEntry,
+  removeWorkspacePresentationCacheEntry,
+  resolveWorkbenchSnapshotsForStations,
+  takeWorkspacePresentationCacheEntry,
+  type WorkspacePresentationCache,
+  type WorkspacePresentationCacheEntry,
+} from '../state/workspace-presentation-cache'
+import {
   WORKSPACE_SESSION_MAX_RESTORE_TABS,
   WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS,
   buildDefaultWorkbenchContainerId,
@@ -43,7 +55,6 @@ import {
   isNavItemId,
   normalizeFsPath,
   type FileReadMode,
-  type StationTerminalRuntime,
 } from './ShellRoot.shared'
 import {
   logPerformanceDebug,
@@ -252,31 +263,26 @@ export function useShellWorkspaceSessionController({
   const tabSessionSnapshotRef = useRef<Array<{ path: string; active: boolean }>>([])
   const workbenchContainerSnapshotRef = useRef<WorkbenchContainerSnapshot[]>([])
   const terminalSessionSnapshotRef = useRef<WorkspaceSessionTerminalSnapshot[]>([])
+  const workspacePresentationCacheRef = useRef<WorkspacePresentationCache>({})
+  const activeNavIdRef = useRef(activeNavId)
+  const activeStationIdRef = useRef(activeStationId)
+  const pinnedWorkbenchContainerIdRef = useRef(pinnedWorkbenchContainerId)
 
   const workspaceSessionFilePath = useMemo(() => buildWorkspaceSessionFilePath(), [])
 
   // Terminal controller destructure
   const {
     stationTerminals,
-    setStationTerminals,
-    stationTerminalsRef,
     stationTerminalOutputCacheRef,
     stationTerminalOutputRevisionRef,
     stationTerminalRestoreStateRef,
-    stationTerminalPendingReplayRef,
-    stationTerminalInputControllerRef,
-    stationTerminalSinkRef: _stationTerminalSinkRef,
-    ensureStationTerminalSessionInFlightRef,
     sessionStationRef,
-    terminalSessionSeqRef,
-    terminalOutputQueueRef,
-    terminalSessionVisibilityRef,
     workspaceTerminalCacheRef,
     presentedWorkspaceIdRef,
     resetTerminalStateOnWorkspaceSwitch,
     captureActiveWorkspaceTerminalDocument,
     resolveWorkspaceTerminalDocument,
-    persistActiveWorkspaceTerminalDocument: _persistActiveWorkspaceTerminalDocument,
+    presentWorkspaceTerminalDocument,
     suspendWorkspaceTerminalSessions,
     recoverWorkspaceTerminalSessions,
   } = terminalController
@@ -362,6 +368,18 @@ export function useShellWorkspaceSessionController({
     terminalSessionSnapshotRef.current = terminalSessionSnapshotEntries
   }, [terminalSessionSnapshotEntries])
 
+  useEffect(() => {
+    activeNavIdRef.current = activeNavId
+  }, [activeNavId])
+
+  useEffect(() => {
+    activeStationIdRef.current = activeStationId
+  }, [activeStationId])
+
+  useEffect(() => {
+    pinnedWorkbenchContainerIdRef.current = pinnedWorkbenchContainerId
+  }, [pinnedWorkbenchContainerId])
+
   // ----- Cleanup timer refs on unmount -----
   useEffect(() => {
     return () => {
@@ -380,6 +398,140 @@ export function useShellWorkspaceSessionController({
 
   // ----- Callbacks -----
 
+  const captureWorkspacePresentation = useCallback((workspaceId: string | null | undefined) => {
+    if (!workspaceId) {
+      return null
+    }
+    // Serialize from the live container ref so maximize/fullscreen and other
+    // view-state changes are captured even before the snapshot effect flushes.
+    const liveWorkbenchSnapshots =
+      workbenchContainersRef.current.length > 0
+        ? serializeWorkbenchContainers(workbenchContainersRef.current)
+        : workbenchContainerSnapshotRef.current
+    const entry = captureWorkspacePresentationCacheEntry({
+      workspaceId,
+      workbenchContainers: liveWorkbenchSnapshots,
+      pinnedWorkbenchContainerId: pinnedWorkbenchContainerIdRef.current,
+      activeNavId: activeNavIdRef.current,
+      activeStationId: activeStationIdRef.current,
+    })
+    putWorkspacePresentationCacheEntry(workspacePresentationCacheRef.current, entry)
+    return entry
+  }, [workbenchContainersRef])
+
+  // Keep presentation cache warm for the presented workspace so maximize state is
+  // available on the next switch without waiting for the debounced disk snapshot.
+  // Use the current snapshot entries (not the ref) so fullscreen changes in this
+  // render are frozen immediately.
+  useLayoutEffect(() => {
+    if (!presentedWorkspaceId) {
+      return
+    }
+    if (presentedWorkspaceIdRef.current !== presentedWorkspaceId) {
+      return
+    }
+    workbenchContainerSnapshotRef.current = workbenchContainerSnapshotEntries
+    const entry = captureWorkspacePresentationCacheEntry({
+      workspaceId: presentedWorkspaceId,
+      workbenchContainers: workbenchContainerSnapshotEntries,
+      pinnedWorkbenchContainerId: pinnedWorkbenchContainerIdRef.current,
+      activeNavId: activeNavIdRef.current,
+      activeStationId: activeStationIdRef.current,
+    })
+    putWorkspacePresentationCacheEntry(workspacePresentationCacheRef.current, entry)
+  }, [
+    activeNavId,
+    activeStationId,
+    pinnedWorkbenchContainerId,
+    presentedWorkspaceId,
+    workbenchContainerSnapshotEntries,
+    workbenchContainerSnapshotSignature,
+  ])
+
+  const applyPresentationLayout = useCallback(
+    (
+      entry: WorkspacePresentationCacheEntry | null | undefined,
+      stationsForPresentation: AgentStation[],
+    ) => {
+      if (!entry || stationsForPresentation.length === 0) {
+        return false
+      }
+      const nextContainers = restoreWorkbenchContainers(
+        entry.workbenchContainers,
+        stationsForPresentation,
+        buildDefaultWorkbenchContainerId,
+      )
+      setWorkbenchContainers(nextContainers)
+      workbenchContainersRef.current = nextContainers
+      pendingWorkbenchContainerSnapshotsRef.current = null
+
+      const stationIdSet = new Set(stationsForPresentation.map((station) => station.id))
+      const preferredActiveStationId =
+        (entry.activeStationId && stationIdSet.has(entry.activeStationId)
+          ? entry.activeStationId
+          : null) ??
+        nextContainers.find((container) => container.activeStationId)?.activeStationId ??
+        stationsForPresentation[0]?.id ??
+        ''
+      if (preferredActiveStationId) {
+        setActiveStationId(preferredActiveStationId)
+        activeStationIdRef.current = preferredActiveStationId
+      }
+
+      if (isNavItemId(entry.activeNavId)) {
+        setActiveNavId(entry.activeNavId)
+        activeNavIdRef.current = entry.activeNavId
+      }
+
+      const pinnedId =
+        entry.pinnedWorkbenchContainerId &&
+        nextContainers.some(
+          (container) =>
+            container.id === entry.pinnedWorkbenchContainerId && container.mode === 'docked',
+        )
+          ? entry.pinnedWorkbenchContainerId
+          : null
+      setPinnedWorkbenchContainerId(pinnedId)
+      pinnedWorkbenchContainerIdRef.current = pinnedId
+      return true
+    },
+    [
+      setActiveNavId,
+      setActiveStationId,
+      setPinnedWorkbenchContainerId,
+      setWorkbenchContainers,
+      workbenchContainersRef,
+    ],
+  )
+
+  const rememberPresentationFromSessionSnapshot = useCallback(
+    (
+      workspaceId: string,
+      snapshot: {
+        windows: Array<{ activeNavId: string; pinnedWorkbenchContainerId: string | null }>
+        workbenchContainers: WorkbenchContainerSnapshot[]
+        terminals: WorkspaceSessionTerminalSnapshot[]
+      },
+    ) => {
+      const activeTerminal = snapshot.terminals.find((terminal) => terminal.active)
+      const entry = captureWorkspacePresentationCacheEntry({
+        workspaceId,
+        workbenchContainers: snapshot.workbenchContainers,
+        pinnedWorkbenchContainerId: snapshot.windows[0]?.pinnedWorkbenchContainerId ?? null,
+        activeNavId: isNavItemId(snapshot.windows[0]?.activeNavId)
+          ? snapshot.windows[0].activeNavId
+          : 'stations',
+        activeStationId:
+          activeTerminal?.stationId ??
+          snapshot.workbenchContainers[0]?.activeStationId ??
+          snapshot.terminals[0]?.stationId ??
+          '',
+      })
+      putWorkspacePresentationCacheEntry(workspacePresentationCacheRef.current, entry)
+    },
+    [],
+  )
+
   const applyWorkspacePresentationSwitch = useCallback((input: {
     activeWorkspaceId: string | null
     departingWorkspaceId: string | null
@@ -392,10 +544,18 @@ export function useShellWorkspaceSessionController({
         ? presentedWorkspaceIdRef.current
         : departingWorkspaceId
     if (presentedDepartingWorkspaceId && presentedDepartingWorkspaceId !== nextWorkspaceId) {
+      // Freeze the departing workspace layout so switching back can paint final state.
+      captureWorkspacePresentation(presentedDepartingWorkspaceId)
       suspendWorkspaceTerminalSessions(presentedDepartingWorkspaceId)
-      logPerformanceDebug('workspace-switch', 'persisted terminal document for departing workspace', {
+      logPerformanceDebug('workspace-switch', 'persisted presentation for departing workspace', {
         departingWorkspaceId: presentedDepartingWorkspaceId,
         sessionCount: Object.keys(sessionStationRef.current).length,
+        hasPresentationCache: Boolean(
+          takeWorkspacePresentationCacheEntry(
+            workspacePresentationCacheRef.current,
+            presentedDepartingWorkspaceId,
+          ),
+        ),
       })
     }
     if (desktopApi.isTauriRuntime()) {
@@ -415,25 +575,88 @@ export function useShellWorkspaceSessionController({
     taskDispatchController.setTaskDraftSavedAtMs(null)
     taskDispatchController.setTaskNotice(null)
     externalChannelController.resetExternalChannelState()
-    pendingWorkbenchContainerSnapshotsRef.current = null
     detachedWindowOpenInFlightRef.current = {}
-    if (clearVisibleState) {
-      resetFileState()
-      setPinnedWorkbenchContainerId(null)
-      setWorkbenchContainers(
-        createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId),
-      )
-      externalChannelController.clearStationTaskSignals()
-      taskDispatchController.setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
-    }
+
+    const stationsForPresentation = stationsRef.current
+    const cachedPresentation = nextWorkspaceId
+      ? takeWorkspacePresentationCacheEntry(workspacePresentationCacheRef.current, nextWorkspaceId)
+      : null
+
+    // Flip presentation ref before installing terminal document / layout.
     presentedWorkspaceIdRef.current = nextWorkspaceId
+
+    // Always drop the previous workspace's editor tabs when the presented
+    // workspace changes. File contents restore asynchronously from the session
+    // snapshot after layout is already correct.
+    if (presentedDepartingWorkspaceId && presentedDepartingWorkspaceId !== nextWorkspaceId) {
+      resetFileState()
+    }
+
+    if (clearVisibleState) {
+      externalChannelController.clearStationTaskSignals()
+      taskDispatchController.setTaskDraft(
+        createInitialTaskDraft(stationsForPresentation, stationsForPresentation[0]?.id ?? ''),
+      )
+      if (!applyPresentationLayout(cachedPresentation, stationsForPresentation)) {
+        setPinnedWorkbenchContainerId(null)
+        pinnedWorkbenchContainerIdRef.current = null
+        setWorkbenchContainers(
+          createInitialWorkbenchContainers(stationsForPresentation, buildDefaultWorkbenchContainerId),
+        )
+        pendingWorkbenchContainerSnapshotsRef.current = null
+      }
+    } else if (cachedPresentation) {
+      // Warm switch: install the last known layout in the same update as presentation.
+      applyPresentationLayout(cachedPresentation, stationsForPresentation)
+    } else {
+      // Cold switch without cache: keep containers only if stations still match;
+      // otherwise park a pending empty restore so the stations effect does not
+      // reconcile the previous workspace layout onto the next stations list.
+      pendingWorkbenchContainerSnapshotsRef.current = null
+    }
+
+    if (nextWorkspaceId && stationsForPresentation.length > 0) {
+      const presentedDocument = presentWorkspaceTerminalDocument(
+        nextWorkspaceId,
+        stationsForPresentation,
+      )
+      if (presentedDocument && !cachedPresentation) {
+        const stationIdSet = new Set(stationsForPresentation.map((station) => station.id))
+        const preferredActiveStationId =
+          (activeStationIdRef.current && stationIdSet.has(activeStationIdRef.current)
+            ? activeStationIdRef.current
+            : null) ??
+          stationsForPresentation.find((station) =>
+            Boolean(presentedDocument.stationTerminals[station.id]?.sessionId),
+          )?.id ??
+          stationsForPresentation[0]?.id ??
+          ''
+        if (preferredActiveStationId && preferredActiveStationId !== activeStationIdRef.current) {
+          setActiveStationId(preferredActiveStationId)
+          activeStationIdRef.current = preferredActiveStationId
+        }
+      }
+    }
     setPresentedWorkspaceId(nextWorkspaceId)
     logPerformanceDebug('workspace-switch', 'workspace presentation switch applied', {
       activeWorkspaceId: nextWorkspaceId,
       clearVisibleState,
+      usedPresentationCache: Boolean(cachedPresentation),
       durationMs: Math.round(performance.now() - resetStartedAt),
     })
-  }, [externalChannelController.resetExternalChannelState, externalChannelController.clearStationTaskSignals, resetFileState, resetTerminalStateOnWorkspaceSwitch, suspendWorkspaceTerminalSessions])
+  }, [
+    applyPresentationLayout,
+    captureWorkspacePresentation,
+    externalChannelController.resetExternalChannelState,
+    externalChannelController.clearStationTaskSignals,
+    presentWorkspaceTerminalDocument,
+    resetFileState,
+    resetTerminalStateOnWorkspaceSwitch,
+    setActiveStationId,
+    setPinnedWorkbenchContainerId,
+    setWorkbenchContainers,
+    suspendWorkspaceTerminalSessions,
+  ])
 
   const requestCloseWorkspace = useCallback(
     (workspaceId: string) => {
@@ -460,6 +683,7 @@ export function useShellWorkspaceSessionController({
     try {
       if (presentedWorkspaceIdRef.current === workspaceId) {
         captureActiveWorkspaceTerminalDocument(workspaceId)
+        captureWorkspacePresentation(workspaceId)
       }
       const cachedDoc = workspaceTerminalCacheRef.current[workspaceId]
       await closeWorkspaceTab(workspaceId)
@@ -476,6 +700,9 @@ export function useShellWorkspaceSessionController({
           delete stationTerminalRestoreStateRef.current[stationId]
         }
       }
+      // Drop keep-alive xterm hosts and presentation cache for the closed workspace.
+      disposeParkedStationTerminalHostsForWorkspace(workspaceId)
+      removeWorkspacePresentationCacheEntry(workspacePresentationCacheRef.current, workspaceId)
       addNotification({
         type: 'success',
         message: t(
@@ -497,7 +724,13 @@ export function useShellWorkspaceSessionController({
       setCloseSubmitting(false)
       setCloseConfirmState(null)
     }
-  }, [captureActiveWorkspaceTerminalDocument, closeConfirmState, closeWorkspaceTab, uiPreferences.locale])
+  }, [
+    captureActiveWorkspaceTerminalDocument,
+    captureWorkspacePresentation,
+    closeConfirmState,
+    closeWorkspaceTab,
+    uiPreferences.locale,
+  ])
 
   const dismissCloseConfirm = useCallback(() => {
     setCloseConfirmState(null)
@@ -601,14 +834,13 @@ export function useShellWorkspaceSessionController({
 
   // ----- Effects -----
 
-  // Workspace presentation switch effect
+  // Workspace presentation switch effect — do not clear files/layout here.
+  // Intermediate clears before the warm layout pass are the main cause of the
+  // "wrong layout then correct layout" flash on workspace tab switches.
   useEffect(() => {
     const departingWorkspaceId = previousActiveWorkspaceIdRef.current
     if (departingWorkspaceId === activeWorkspaceId) {
       return
-    }
-    if (departingWorkspaceId !== null) {
-      resetFileState()
     }
     previousActiveWorkspaceIdRef.current = activeWorkspaceId
     pendingWorkspacePresentationSwitchRef.current = {
@@ -640,10 +872,10 @@ export function useShellWorkspaceSessionController({
     closeConfirmState?.workspaceId,
     closeSubmitting,
     completeWorkspaceSwitch,
-    resetFileState,
   ])
 
-  // Terminal document hydration effect
+  // Terminal document hydration effect — keep live session maps aligned after
+  // async station reloads. Presentation switch already hydrates synchronously.
   useEffect(() => {
     if (!presentedWorkspaceId || activeWorkspaceId !== presentedWorkspaceId) {
       return
@@ -653,49 +885,8 @@ export function useShellWorkspaceSessionController({
     }
 
     const stationIdSet = new Set(stations.map((station) => station.id))
-    const terminalDocument = resolveWorkspaceTerminalDocument(presentedWorkspaceId, stations)
-
-    stationTerminalsRef.current = { ...terminalDocument.stationTerminals }
-    stationTerminalOutputCacheRef.current = { ...terminalDocument.outputCache }
-    stationTerminalOutputRevisionRef.current = { ...terminalDocument.outputRevision }
-    stationTerminalRestoreStateRef.current = { ...terminalDocument.restoreState }
-    sessionStationRef.current = { ...terminalDocument.sessionStation }
-    terminalSessionSeqRef.current = { ...terminalDocument.sessionSeq }
-    terminalSessionVisibilityRef.current = { ...terminalDocument.sessionVisibility }
-    setStationTerminals({ ...terminalDocument.stationTerminals })
-
-    Object.keys(stationTerminalPendingReplayRef.current).forEach((stationId) => {
-      if (!stationIdSet.has(stationId)) {
-        delete stationTerminalPendingReplayRef.current[stationId]
-      }
-    })
+    presentWorkspaceTerminalDocument(presentedWorkspaceId, stations)
     externalChannelController.pruneStationTaskSignals(stationIdSet)
-    stations.forEach((station) => {
-      if (!stationTerminalOutputCacheRef.current[station.id]) {
-        stationTerminalOutputCacheRef.current[station.id] = ''
-      }
-    })
-    Object.entries(sessionStationRef.current).forEach(([sessionId, stationId]) => {
-      if (!stationIdSet.has(stationId)) {
-        delete sessionStationRef.current[sessionId]
-        delete terminalSessionSeqRef.current[sessionId]
-        delete terminalOutputQueueRef.current[sessionId]
-        delete terminalSessionVisibilityRef.current[sessionId]
-      }
-    })
-    stationTerminalsRef.current = Object.keys(stationTerminalsRef.current).reduce<Record<string, StationTerminalRuntime>>(
-      (acc, stationId) => {
-        if (stationIdSet.has(stationId)) {
-          acc[stationId] = stationTerminalsRef.current[stationId]
-        } else {
-          stationTerminalInputControllerRef.current?.clear(stationId)
-          delete ensureStationTerminalSessionInFlightRef.current[stationId]
-        }
-        return acc
-      },
-      {},
-    )
-    captureActiveWorkspaceTerminalDocument(presentedWorkspaceId)
     recoverWorkspaceTerminalSessions(presentedWorkspaceId)
 
     if (!activeStationId && stations[0]) {
@@ -709,25 +900,109 @@ export function useShellWorkspaceSessionController({
     activeStationId,
     activeWorkspaceId,
     presentedWorkspaceId,
-    captureActiveWorkspaceTerminalDocument,
     recoverWorkspaceTerminalSessions,
     externalChannelController.pruneStationTaskSignals,
-    resolveWorkspaceTerminalDocument,
+    presentWorkspaceTerminalDocument,
     stationsLoadedWorkspaceId,
     stations,
+    setActiveStationId,
   ])
 
-  // Workbench container reconciliation effect
-  useEffect(() => {
+  // Workbench container reconciliation — useLayoutEffect so a station inventory
+  // swap never paints the previous workspace's layout for a frame.
+  useLayoutEffect(() => {
     setWorkbenchContainers((prev) => {
       const pendingSnapshots = pendingWorkbenchContainerSnapshotsRef.current
       if (pendingSnapshots) {
         pendingWorkbenchContainerSnapshotsRef.current = null
         return restoreWorkbenchContainers(pendingSnapshots, stations, buildDefaultWorkbenchContainerId)
       }
+
+      const stationIdSet = new Set(stations.map((station) => station.id))
+      const previousStationCount = prev.reduce(
+        (count, container) => count + container.stationIds.length,
+        0,
+      )
+      const retainedStationCount = prev.reduce(
+        (count, container) =>
+          count + container.stationIds.filter((stationId) => stationIdSet.has(stationId)).length,
+        0,
+      )
+      const looksLikeWorkspaceSwap = previousStationCount > 0 && retainedStationCount === 0
+      const targetWorkspaceId =
+        activeWorkspaceId && stationsLoadedWorkspaceId === activeWorkspaceId
+          ? activeWorkspaceId
+          : presentedWorkspaceIdRef.current &&
+              stationsLoadedWorkspaceId === presentedWorkspaceIdRef.current
+            ? presentedWorkspaceIdRef.current
+            : null
+      if (looksLikeWorkspaceSwap || previousStationCount === 0) {
+        const cachedSnapshots = resolveWorkbenchSnapshotsForStations(
+          workspacePresentationCacheRef.current,
+          targetWorkspaceId,
+          stations.map((station) => station.id),
+        )
+        if (cachedSnapshots) {
+          return restoreWorkbenchContainers(
+            cachedSnapshots,
+            stations,
+            buildDefaultWorkbenchContainerId,
+          )
+        }
+      }
       return reconcileWorkbenchContainers(prev, stations, buildDefaultWorkbenchContainerId)
     })
-  }, [stations])
+  }, [activeWorkspaceId, stations, stationsLoadedWorkspaceId])
+
+  // Warm presentation before paint: once stations for the target workspace are
+  // ready and we have a cached presentation/terminal document, install the full
+  // final UI in the same layout pass (layout + terminals + presented id).
+  useLayoutEffect(() => {
+    const pending = pendingWorkspacePresentationSwitchRef.current
+    if (!pending?.targetWorkspaceId || !activeWorkspaceId) {
+      return
+    }
+    if (pending.targetWorkspaceId !== activeWorkspaceId) {
+      return
+    }
+    if (stationsLoadedWorkspaceId !== activeWorkspaceId) {
+      return
+    }
+    if (stationsRef.current.length === 0) {
+      return
+    }
+    const workspaceId = activeWorkspaceId
+    const hasWarmPresentationCache = Boolean(
+      takeWorkspacePresentationCacheEntry(workspacePresentationCacheRef.current, workspaceId) ||
+        workspaceTerminalCacheRef.current[workspaceId],
+    )
+    if (!hasWarmPresentationCache) {
+      return
+    }
+    if (presentedWorkspaceIdRef.current === workspaceId) {
+      pendingWorkspacePresentationSwitchRef.current = null
+      return
+    }
+    const clearVisibleState = clearVisibleStateOnNextPresentationSwitchRef.current
+    clearVisibleStateOnNextPresentationSwitchRef.current = false
+    applyWorkspacePresentationSwitch({
+      activeWorkspaceId: workspaceId,
+      departingWorkspaceId: pending.departingWorkspaceId,
+      clearVisibleState,
+    })
+    pendingWorkspacePresentationSwitchRef.current = null
+    recoverWorkspaceTerminalSessions(workspaceId)
+    logPerformanceDebug('workspace-session', 'warm presentation applied in layout pass', {
+      workspaceId,
+      stationCount: stationsRef.current.length,
+    })
+  }, [
+    activeWorkspaceId,
+    applyWorkspacePresentationSwitch,
+    recoverWorkspaceTerminalSessions,
+    stations,
+    stationsLoadedWorkspaceId,
+  ])
 
   // Active station in container sync effect
   useEffect(() => {
@@ -799,6 +1074,8 @@ export function useShellWorkspaceSessionController({
 
     const restoreWorkspaceSession = async () => {
       try {
+        // Cold path presentation is applied after snapshot IPC below. Warm path
+        // already presented in the layout effect before paint.
         const response = await desktopApi.workspaceRestoreSession(workspaceId)
         if (
           cancelled ||
@@ -855,6 +1132,9 @@ export function useShellWorkspaceSessionController({
           return
         }
 
+        // Keep the in-memory presentation cache aligned with disk/session restore.
+        rememberPresentationFromSessionSnapshot(workspaceId, restored)
+
         if (restored.terminals.length > 0 && stationsRef.current.length > 0) {
           const restoredSessionIds = Array.from(
             new Set(
@@ -888,37 +1168,49 @@ export function useShellWorkspaceSessionController({
             liveSessionIds,
           )
           workspaceTerminalCacheRef.current[workspaceId] = terminalDocument
+          // Refresh the already-presented surface after live-session reconciliation.
+          if (presentedWorkspaceIdRef.current === workspaceId) {
+            presentWorkspaceTerminalDocument(workspaceId, stationsRef.current)
+          }
         }
 
-        pendingWorkbenchContainerSnapshotsRef.current = restored.workbenchContainers
+        // Apply layout from the restored snapshot. When warm presentation already
+        // installed an identical cache entry this is a no-op-looking reapply and
+        // avoids a later reconcile flash if containers were still stale.
         if (stationsRef.current.length > 0) {
-          pendingWorkbenchContainerSnapshotsRef.current = null
-          setWorkbenchContainers(
-            restoreWorkbenchContainers(
+          const presentationEntry = takeWorkspacePresentationCacheEntry(
+            workspacePresentationCacheRef.current,
+            workspaceId,
+          )
+          if (presentationEntry) {
+            applyPresentationLayout(presentationEntry, stationsRef.current)
+          } else {
+            const nextContainers = restoreWorkbenchContainers(
               restored.workbenchContainers,
               stationsRef.current,
               buildDefaultWorkbenchContainerId,
-            ),
-          )
-        }
-
-        const activeNav = restored.windows[0]?.activeNavId
-        if (typeof activeNav === 'string' && isNavItemId(activeNav)) {
-          setActiveNavId(activeNav)
-        }
-
-        const restoredPinnedWorkbenchContainerId = restored.windows[0]?.pinnedWorkbenchContainerId
-        if (
-          typeof restoredPinnedWorkbenchContainerId === 'string' &&
-          restoredPinnedWorkbenchContainerId.trim() &&
-          restored.workbenchContainers.some(
-            (container) =>
-              container.id === restoredPinnedWorkbenchContainerId && container.mode === 'docked',
-          )
-        ) {
-          setPinnedWorkbenchContainerId(restoredPinnedWorkbenchContainerId)
-        } else {
-          setPinnedWorkbenchContainerId(null)
+            )
+            setWorkbenchContainers(nextContainers)
+            workbenchContainersRef.current = nextContainers
+            pendingWorkbenchContainerSnapshotsRef.current = null
+            const activeNav = restored.windows[0]?.activeNavId
+            if (typeof activeNav === 'string' && isNavItemId(activeNav)) {
+              setActiveNavId(activeNav)
+            }
+            const restoredPinnedWorkbenchContainerId = restored.windows[0]?.pinnedWorkbenchContainerId
+            if (
+              typeof restoredPinnedWorkbenchContainerId === 'string' &&
+              restoredPinnedWorkbenchContainerId.trim() &&
+              restored.workbenchContainers.some(
+                (container) =>
+                  container.id === restoredPinnedWorkbenchContainerId && container.mode === 'docked',
+              )
+            ) {
+              setPinnedWorkbenchContainerId(restoredPinnedWorkbenchContainerId)
+            } else {
+              setPinnedWorkbenchContainerId(null)
+            }
+          }
         }
 
         const tabsToRestore = restored.tabs.slice(0, WORKSPACE_SESSION_MAX_RESTORE_TABS)
@@ -1008,13 +1300,22 @@ export function useShellWorkspaceSessionController({
     }
   }, [
     activeWorkspaceId,
-    captureActiveWorkspaceTerminalDocument,
-    loadFileContentRef,
-    stationsLoadedWorkspaceId,
-    setActiveFilePath,
-    setStationTerminals,
+    applyPresentationLayout,
     applyWorkspacePresentationSwitch,
+    beginWorkspaceSwitchAnimation,
     completeWorkspaceSwitch,
+    loadFileContentRef,
+    presentWorkspaceTerminalDocument,
+    recoverWorkspaceTerminalSessions,
+    rememberPresentationFromSessionSnapshot,
+    resolveWorkspaceTerminalDocument,
+    setActiveFilePath,
+    setActiveNavId,
+    setOpenedFiles,
+    setPinnedWorkbenchContainerId,
+    setWorkbenchContainers,
+    workbenchContainersRef,
+    stationsLoadedWorkspaceId,
     workspaceSessionFilePath,
   ])
 
@@ -1044,6 +1345,8 @@ export function useShellWorkspaceSessionController({
         terminals: terminalSessionSnapshotRef.current,
         workbenchContainers: workbenchContainerSnapshotRef.current,
       })
+      // Keep warm-switch presentation cache current without waiting for disk IO.
+      rememberPresentationFromSessionSnapshot(workspaceId, snapshot)
       const serialized = serializeWorkspaceSessionSnapshot(snapshot)
       void desktopApi.fsWriteFile(workspaceId, workspaceSessionFilePath, serialized).catch(() => {
         // Keep UI responsive: snapshot persistence is best-effort.
@@ -1062,6 +1365,7 @@ export function useShellWorkspaceSessionController({
     activeNavId,
     pinnedWorkbenchContainerId,
     presentedWorkspaceId,
+    rememberPresentationFromSessionSnapshot,
     tabSessionSnapshotSignature,
     workbenchContainerSnapshotSignature,
     terminalSessionSnapshotSignature,

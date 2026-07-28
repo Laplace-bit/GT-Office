@@ -48,10 +48,15 @@ test('keeps exited sessions renderable for transcript playback', () => {
   )
 })
 
-test('prioritizes a launching terminal runtime without eagerly mounting inactive live sessions', () => {
+test('prioritizes launching runtimes and any station that already owns a live session', () => {
   assert.equal(shouldPrioritizeStationTerminalRuntimeInit(false, 'launching'), true)
   assert.equal(shouldPrioritizeStationTerminalRuntimeInit(false, 'running'), false)
   assert.equal(shouldPrioritizeStationTerminalRuntimeInit(true, 'running'), true)
+  assert.equal(
+    shouldPrioritizeStationTerminalRuntimeInit(false, 'running', 'session-1'),
+    true,
+    'workspace-switch keep-alive must mount live sessions on first paint',
+  )
 })
 
 test('detects no-op runtime patches before shell React state updates', () => {

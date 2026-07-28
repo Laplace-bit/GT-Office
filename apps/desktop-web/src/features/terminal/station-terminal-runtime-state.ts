@@ -43,7 +43,13 @@ export function shouldAutoLaunchStationTerminalFromSurface(
 export function shouldPrioritizeStationTerminalRuntimeInit(
   isActive: boolean,
   stateRaw: string | null | undefined,
+  sessionId?: string | null,
 ): boolean {
+  // Live sessions must initialize on the first paint after a workspace switch so
+  // the card never flashes the idle/history shell while background init waits.
+  if (Boolean(sessionId?.trim())) {
+    return true
+  }
   return isActive || stateRaw === 'launching'
 }
 

@@ -48,6 +48,7 @@ export function useShellStationController({
   const [stationsLoadedWorkspaceId, setStationsLoadedWorkspaceId] = useState<string | null>(null)
   const [stationSavePending, setStationSavePending] = useState(false)
   const latestRequestedWorkspaceIdRef = useRef<string | null>(activeWorkspaceId)
+  const stationsByWorkspaceRef = useRef<Record<string, AgentStation[]>>({})
 
   useEffect(() => {
     latestRequestedWorkspaceIdRef.current = activeWorkspaceId
@@ -64,10 +65,9 @@ export function useShellStationController({
       })
       return
     }
-    setStations(
-      agentResponse.agents
-        .map((agent) => mapAgentProfileToStation(agent)),
-    )
+    const nextStations = agentResponse.agents.map((agent) => mapAgentProfileToStation(agent))
+    stationsByWorkspaceRef.current[workspaceId] = nextStations
+    setStations(nextStations)
     setStationsLoadedWorkspaceId(workspaceId)
     logPerformanceDebug('workspace-stations', 'loaded station snapshot', {
       workspaceId,
@@ -88,8 +88,21 @@ export function useShellStationController({
       setStations([])
       return
     }
-    setStationsLoadedWorkspaceId(null)
     latestRequestedWorkspaceIdRef.current = activeWorkspaceId
+    // Warm path: reinstall the last known station list immediately so workspace
+    // presentation and terminal keep-alive can paint live sessions without waiting
+    // for agentList IPC. Refresh continues in the background.
+    const cachedStations = stationsByWorkspaceRef.current[activeWorkspaceId]
+    if (cachedStations) {
+      setStations(cachedStations)
+      setStationsLoadedWorkspaceId(activeWorkspaceId)
+      logPerformanceDebug('workspace-stations', 'applied cached station snapshot', {
+        workspaceId: activeWorkspaceId,
+        stationCount: cachedStations.length,
+      })
+    } else {
+      setStationsLoadedWorkspaceId(null)
+    }
     void loadStationsFromDatabase(activeWorkspaceId).catch((error) => {
       console.error('failed to load agents', error)
     })

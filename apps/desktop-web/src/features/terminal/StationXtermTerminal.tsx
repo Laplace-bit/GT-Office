@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -73,6 +74,12 @@ import type {
   StationTerminalSink,
   StationTerminalSinkBindingHandler,
 } from './station-terminal-sink-types'
+import {
+  createStationTerminalHostSurface,
+  disposeParkedStationTerminalHost,
+  parkStationTerminalHost,
+  reclaimStationTerminalHost,
+} from './station-terminal-host-pool'
 
 export type {
   StationTerminalSink,
@@ -392,7 +399,11 @@ function StationXtermTerminalView({
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
   const boundSinkRef = useRef<StationTerminalSink | null>(null)
-  const shouldPrioritizeRuntimeInit = shouldPrioritizeStationTerminalRuntimeInit(isActive, stateRaw)
+  const shouldPrioritizeRuntimeInit = shouldPrioritizeStationTerminalRuntimeInit(
+    isActive,
+    stateRaw,
+    sessionId,
+  )
   const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(shouldPrioritizeRuntimeInit)
   const [rendererRecoveryVersion, setRendererRecoveryVersion] = useState(0)
   const [fileDropActive, setFileDropActive] = useState(false)
@@ -438,6 +449,7 @@ function StationXtermTerminalView({
     inputReady: false,
   })
   const lastRenderEventSeqRef = useRef(0)
+  const forceDisposeTerminalRef = useRef(false)
 
   const recordFocusDiagnostic = useCallback(
     (kind: StationTerminalFocusDiagnosticKind, detail?: string) => {
@@ -674,6 +686,9 @@ function StationXtermTerminalView({
         return
       }
       rendererRecoveryInFlightRef.current = true
+      // Renderer recovery must tear down the live host rather than park it; a
+      // corrupted WebGL atlas would otherwise be reclaimed on the next mount.
+      forceDisposeTerminalRef.current = true
       recordFocusDiagnostic('viewport-wake', `renderer-recycle:${reason}`)
       setRendererRecoveryVersion((value) => value + 1)
     },
@@ -844,12 +859,17 @@ function StationXtermTerminalView({
     }
   }, [])
 
-  useEffect(() => {
+  // useLayoutEffect so parked hosts reparent before the browser paints — this is
+  // what makes workspace switch feel native instead of flashing an empty shell.
+  useLayoutEffect(() => {
     const host = hostRef.current
     if (!host || !runtimeInitAllowed) {
       return
     }
 
+    const boundWorkspaceId = workspaceId?.trim() || null
+    const boundStationId = stationId
+    const boundSessionId = sessionId?.trim() || null
     let active = true
     let dataDisposable: { dispose: () => void } | null = null
     let resizeDisposable: { dispose: () => void } | null = null
@@ -889,6 +909,15 @@ function StationXtermTerminalView({
     let serializedRestoreRows = 0
     let serializedRestoreViewportY: number | null = null
     let pendingRestoreViewportY: number | null = null
+    let hostSurface: HTMLDivElement | null = null
+    let serializeAddon: {
+      serialize: (options?: {
+        scrollback?: number
+        excludeModes?: boolean
+        excludeAltBuffer?: boolean
+      }) => string
+    } | null = null
+    let preservedLiveBuffer = false
     void Promise.all([
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
@@ -901,46 +930,86 @@ function StationXtermTerminalView({
           return
         }
 
-        const terminal = new xtermModule.Terminal({
-          convertEol: false,
-          fontFamily: resolveTerminalFontFamily(host),
-          fontSize: resolveTerminalFontSize(host),
-          fontWeight: 'normal',
-          fontWeightBold: '700',
-          lineHeight: 1.2,
-          scrollback: TERMINAL_SCROLLBACK_LINES,
-          theme: getTerminalTheme(host),
-          overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
-          drawBoldTextInBrightColors: true,
-          minimumContrastRatio: 4.5,
-          cursorBlink: true,
-          cursorStyle: 'bar',
-          cursorWidth: 2,
-          cursorInactiveStyle: 'outline',
-          customGlyphs: true,
-          // Unicode11Addon activates xterm's proposed Unicode API.
-          allowProposedApi: true,
-          rescaleOverlappingGlyphs: true,
-          smoothScrollDuration: 125,
-          scrollOnUserInput: true,
-          fastScrollSensitivity: 5,
-          altClickMovesCursor: true,
-          rightClickSelectsWord: true,
-        })
-        const fitAddon = new fitModule.FitAddon()
-        const serializeAddon = new serializeModule.SerializeAddon()
-        terminal.loadAddon(fitAddon)
-        terminal.loadAddon(serializeAddon)
-        const unicode11Addon = new unicode11Module.Unicode11Addon()
-        terminal.loadAddon(unicode11Addon)
-        terminal.unicode.activeVersion = '11'
-        terminal.open(host)
+        // Prefer a parked host from a prior workspace presentation so switching
+        // back is a reparent + rebind instead of dispose + full VT restore.
+        const reclaimed =
+          boundWorkspaceId && boundSessionId
+            ? reclaimStationTerminalHost(boundWorkspaceId, boundStationId, boundSessionId)
+            : null
+        if (!boundSessionId && boundWorkspaceId) {
+          disposeParkedStationTerminalHost(boundWorkspaceId, boundStationId)
+        }
 
-        // WKWebView can retain a corrupt WebGL glyph texture atlas after compositor
-        // changes. Its default canvas renderer avoids that GPU-only failure mode.
-        if (shouldUseStationTerminalWebglRenderer(isMacOsWebKitEnvironmentRef.current)) {
+        let terminal: import('@xterm/xterm').Terminal
+        let fitAddon: import('@xterm/addon-fit').FitAddon
+        if (reclaimed) {
+          preservedLiveBuffer = true
+          terminal = reclaimed.terminal
+          fitAddon = reclaimed.fitAddon as import('@xterm/addon-fit').FitAddon
+          serializeAddon = reclaimed.serializeAddon
+          webglAddon = reclaimed.webglAddon as import('@xterm/addon-webgl').WebglAddon | null
+          hostSurface = reclaimed.surface
+          if (hostSurface.parentElement !== host) {
+            host.appendChild(hostSurface)
+          }
+          recordFocusDiagnostic('viewport-wake', 'host-pool-reclaim')
+        } else {
+          hostSurface = createStationTerminalHostSurface(resolveTerminalDocument(host, document))
+          host.appendChild(hostSurface)
+          terminal = new xtermModule.Terminal({
+            convertEol: false,
+            fontFamily: resolveTerminalFontFamily(host),
+            fontSize: resolveTerminalFontSize(host),
+            fontWeight: 'normal',
+            fontWeightBold: '700',
+            lineHeight: 1.2,
+            scrollback: TERMINAL_SCROLLBACK_LINES,
+            theme: getTerminalTheme(host),
+            overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
+            drawBoldTextInBrightColors: true,
+            minimumContrastRatio: 4.5,
+            cursorBlink: true,
+            cursorStyle: 'bar',
+            cursorWidth: 2,
+            cursorInactiveStyle: 'outline',
+            customGlyphs: true,
+            // Unicode11Addon activates xterm's proposed Unicode API.
+            allowProposedApi: true,
+            rescaleOverlappingGlyphs: true,
+            smoothScrollDuration: 125,
+            scrollOnUserInput: true,
+            fastScrollSensitivity: 5,
+            altClickMovesCursor: true,
+            rightClickSelectsWord: true,
+          })
+          fitAddon = new fitModule.FitAddon()
+          const nextSerializeAddon = new serializeModule.SerializeAddon()
+          serializeAddon = nextSerializeAddon
+          terminal.loadAddon(fitAddon)
+          terminal.loadAddon(nextSerializeAddon)
+          const unicode11Addon = new unicode11Module.Unicode11Addon()
+          terminal.loadAddon(unicode11Addon)
+          terminal.unicode.activeVersion = '11'
+          terminal.open(hostSurface)
+
+          // WKWebView can retain a corrupt WebGL glyph texture atlas after compositor
+          // changes. Its default canvas renderer avoids that GPU-only failure mode.
+          if (shouldUseStationTerminalWebglRenderer(isMacOsWebKitEnvironmentRef.current)) {
+            try {
+              webglAddon = new webglModule.WebglAddon(false)
+              // loadAddon wires the WebGL surface as the active renderer after open();
+              // the addon self-registers internally — there is no separate register() call.
+              terminal.loadAddon(webglAddon)
+            } catch (error) {
+              webglAddon = null
+              const message = error instanceof Error ? error.message : String(error)
+              recordFocusDiagnostic('webgl-unavailable', message)
+            }
+          }
+        }
+
+        if (webglAddon) {
           try {
-            webglAddon = new webglModule.WebglAddon(false)
             webglContextLossDisposable = webglAddon.onContextLoss(() => {
               webglContextLossDisposable?.dispose()
               webglContextLossDisposable = null
@@ -954,15 +1023,8 @@ function StationXtermTerminalView({
               // force a refresh so the recovered surface paints immediately.
               refreshTerminal()
             })
-            // loadAddon wires the WebGL surface as the active renderer after open();
-            // the addon self-registers internally — there is no separate register() call.
-            terminal.loadAddon(webglAddon)
-          } catch (error) {
-            webglContextLossDisposable?.dispose()
+          } catch {
             webglContextLossDisposable = null
-            webglAddon = null
-            const message = error instanceof Error ? error.message : String(error)
-            recordFocusDiagnostic('webgl-unavailable', message)
           }
         }
 
@@ -1257,7 +1319,7 @@ function StationXtermTerminalView({
             return
           }
           const currentSessionId = sessionIdRef.current?.trim() ?? ''
-          if (!currentSessionId) {
+          if (!currentSessionId || !serializeAddon) {
             return
           }
           try {
@@ -1929,7 +1991,13 @@ function StationXtermTerminalView({
         boundSinkRef.current = sink
         onBindSink(stationId, sink, {
           restorePriority: isActiveRef.current ? 'active' : 'background',
+          preserveLiveBuffer: preservedLiveBuffer,
         })
+        if (preservedLiveBuffer) {
+          // Reclaimed hosts keep their buffer; still wake the renderer after reparent.
+          scheduleRefresh()
+          scheduleFitRetry()
+        }
       },
     ).catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
@@ -1946,25 +2014,64 @@ function StationXtermTerminalView({
       captureLatestRestoreState?.()
       const boundSink = boundSinkRef.current
       boundSinkRef.current = null
-      onBindSink(stationId, null, {
-        sourceSink: boundSink,
-        sourceSessionId: sessionIdRef.current,
-        restoreState: serializedRestoreState,
-        restoreCols: serializedRestoreCols,
-        restoreRows: serializedRestoreRows,
-        restoreViewportY: serializedRestoreViewportY,
-      })
+      const liveTerminal = terminalRef.current
+      const liveFitAddon = fitAddonRef.current
+      const forceDispose = forceDisposeTerminalRef.current
+      forceDisposeTerminalRef.current = false
+      const canParkLiveBuffer = Boolean(
+        !forceDispose &&
+          boundWorkspaceId &&
+          boundSessionId &&
+          liveTerminal &&
+          liveFitAddon &&
+          serializeAddon &&
+          hostSurface,
+      )
+      if (canParkLiveBuffer && liveTerminal && liveFitAddon && serializeAddon && hostSurface) {
+        parkStationTerminalHost({
+          workspaceId: boundWorkspaceId!,
+          stationId: boundStationId,
+          sessionId: boundSessionId!,
+          terminal: liveTerminal,
+          fitAddon: liveFitAddon,
+          serializeAddon,
+          webglAddon,
+          surface: hostSurface,
+          sink: boundSink,
+        })
+        onBindSink(stationId, null, {
+          sourceSink: boundSink,
+          sourceSessionId: boundSessionId,
+          restoreState: serializedRestoreState,
+          restoreCols: serializedRestoreCols,
+          restoreRows: serializedRestoreRows,
+          restoreViewportY: serializedRestoreViewportY,
+          parkLiveBuffer: true,
+        })
+        webglAddon = null
+      } else {
+        onBindSink(stationId, null, {
+          sourceSink: boundSink,
+          sourceSessionId: boundSessionId ?? sessionIdRef.current,
+          restoreState: serializedRestoreState,
+          restoreCols: serializedRestoreCols,
+          restoreRows: serializedRestoreRows,
+          restoreViewportY: serializedRestoreViewportY,
+        })
+        try {
+          webglAddon?.dispose()
+        } catch {
+          // No-op: addon disposal is best-effort during teardown.
+        }
+        webglAddon = null
+        liveTerminal?.dispose()
+        hostSurface?.remove()
+      }
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
       renderDisposable?.dispose()
       webglContextLossDisposable?.dispose()
       webglContextLossDisposable = null
-      try {
-        webglAddon?.dispose()
-      } catch {
-        // No-op: addon disposal is best-effort during teardown.
-      }
-      webglAddon = null
       removeViewportWakeListeners?.()
       removeCompositionStartSyncListener?.()
       removeTerminalFocusTextureRecoveryListener?.()
@@ -2005,7 +2112,6 @@ function StationXtermTerminalView({
       focusRetryFrameRef.current = null
       focusRuntimeReadyRef.current = false
       focusTerminalRequestRef.current = null
-      terminalRef.current?.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
     }
@@ -2020,6 +2126,7 @@ function StationXtermTerminalView({
     recycleTerminalRenderer,
     sessionId,
     stationId,
+    workspaceId,
   ])
 
   useEffect(() => {

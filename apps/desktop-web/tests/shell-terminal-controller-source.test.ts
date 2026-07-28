@@ -63,6 +63,46 @@ test('created terminal sessions are published through React state before input i
   )
 })
 
+test('shell terminal controller skips full restore when rebinding a preserved live terminal buffer', () => {
+  assert.match(controllerSource, /preserveLiveBuffer/)
+  assert.match(controllerSource, /parkLiveBuffer/)
+  assert.match(
+    controllerSource,
+    /if \(preserveLiveBuffer\) \{[\s\S]*?return\n\s*\}/,
+    'reclaimed workspace-switch hosts must skip full restore/reset',
+  )
+  assert.match(
+    controllerSource,
+    /meta\?\.parkLiveBuffer/,
+    'parked keep-alive unbind must retain restore state for document cache fallback',
+  )
+})
+
+test('shell terminal controller can present a cached terminal document synchronously for workspace switches', () => {
+  assert.match(controllerSource, /const presentWorkspaceTerminalDocument = useCallback/)
+  assert.match(
+    controllerSource,
+    /setStationTerminals\(\{ \.\.\.stationTerminalsRef\.current \}\)/,
+    'presentation must publish live runtimes to React state before paint',
+  )
+  assert.match(
+    controllerSource,
+    /cachedDocument\?\.stationTerminals\[station\.id\]/,
+    'station seed path must prefer cached live runtimes over fresh idle shells',
+  )
+})
+
+test('cached background terminal output is also written to parked keep-alive hosts', () => {
+  const flushCachedBlock =
+    controllerSource.match(
+      /const flushCachedTerminalOutputAppendQueue = useCallback\(\(\) => \{[\s\S]*?\n  \}, \[\]\)/,
+    )?.[0] ?? ''
+
+  assert.notEqual(flushCachedBlock, '', 'cached terminal output flush path should exist')
+  assert.match(flushCachedBlock, /peekParkedStationTerminalHost/)
+  assert.match(flushCachedBlock, /parkedHost\.sink\.write/)
+})
+
 test('terminal and agent launches immediately replace stale output and activate their target station', () => {
   const launchTerminalBlock =
     controllerSource.match(/const launchStationTerminal = useMemo\([\s\S]*?\n  \)\n\n  \/\/ ── Send station terminal input/m)?.[0] ?? ''
