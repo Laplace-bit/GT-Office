@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { AgentStation } from '@features/workspace-hub'
 import type { Locale } from '@shell/i18n/ui-locale'
@@ -11,20 +11,22 @@ import type {
 } from './task-center-model'
 import type { TaskMentionFileCandidate } from './TaskCenterPane'
 import { TaskCenterPane } from './TaskCenterPane'
+import { DEFAULT_TASK_QUICK_DISPATCH_OPACITY } from './task-center-model'
 import {
   clampQuickDispatchRailPosition,
-  parseQuickDispatchRailSnapshot,
+  parseQuickDispatchRailPrefs,
   QUICK_DISPATCH_RAIL_STORAGE_KEY,
   resolveDefaultQuickDispatchRailPosition,
-  resolveQuickDispatchRailExpandedState,
-  serializeQuickDispatchRailSnapshot,
+  resolveTaskTargetIdsForDispatch,
+  serializeQuickDispatchRailPrefs,
   type QuickDispatchRailPosition,
+  type QuickDispatchRailPrefs,
 } from './global-task-dispatch-rail-state'
 import './GlobalTaskDispatchOverlay.scss'
 
 const DEFAULT_RAIL_SIZE = {
-  width: 448,
-  height: 148,
+  width: 480,
+  height: 200,
 }
 
 const QUICK_DISPATCH_RAIL_MARGIN = 20
@@ -39,37 +41,33 @@ function areRailPositionsEqual(
   return left.left === right.left && left.top === right.top
 }
 
-function loadRememberedRailPosition(): QuickDispatchRailPosition | null {
+function loadRailPrefs(): QuickDispatchRailPrefs {
   if (typeof window === 'undefined') {
-    return null
+    return parseQuickDispatchRailPrefs(null)
   }
-
-  const raw = window.localStorage.getItem(QUICK_DISPATCH_RAIL_STORAGE_KEY)
-  if (!raw) {
-    return null
+  try {
+    return parseQuickDispatchRailPrefs(window.localStorage.getItem(QUICK_DISPATCH_RAIL_STORAGE_KEY))
+  } catch {
+    return parseQuickDispatchRailPrefs(null)
   }
-
-  return parseQuickDispatchRailSnapshot(raw)?.position ?? null
 }
 
-function saveRememberedRailPosition(position: QuickDispatchRailPosition): void {
+function saveRailPrefs(prefs: QuickDispatchRailPrefs): void {
   if (typeof window === 'undefined') {
     return
   }
-
-  window.localStorage.setItem(
-    QUICK_DISPATCH_RAIL_STORAGE_KEY,
-    serializeQuickDispatchRailSnapshot({
-      version: 1,
-      position,
-    }),
-  )
+  try {
+    window.localStorage.setItem(QUICK_DISPATCH_RAIL_STORAGE_KEY, serializeQuickDispatchRailPrefs(prefs))
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
 }
 
 interface GlobalTaskDispatchOverlayProps {
   open: boolean
   locale: Locale
   stations: AgentStation[]
+  activeStationId?: string | null
   draft: TaskDraftState
   sending: boolean
   draftSavedAtMs: number | null
@@ -86,12 +84,14 @@ interface GlobalTaskDispatchOverlayProps {
   onSendTask: () => void
   onSearchMentionFiles: (query: string) => void
   onClearMentionSearch: () => void
+  onPinnedChange?: (pinned: boolean) => void
 }
 
 function GlobalTaskDispatchOverlayView({
   open,
   locale,
   stations,
+  activeStationId = null,
   draft,
   sending,
   draftSavedAtMs,
@@ -108,51 +108,141 @@ function GlobalTaskDispatchOverlayView({
   onSendTask,
   onSearchMentionFiles,
   onClearMentionSearch,
+  onPinnedChange,
 }: GlobalTaskDispatchOverlayProps) {
   const panelRef = useRef<HTMLElement | null>(null)
   const positionRef = useRef<QuickDispatchRailPosition | null>(null)
   const panelSizeRef = useRef(DEFAULT_RAIL_SIZE)
+  const prefsRef = useRef<QuickDispatchRailPrefs>(loadRailPrefs())
   const dragSessionRef = useRef<{
     pointerId: number
     offsetX: number
     offsetY: number
   } | null>(null)
   const [position, setPosition] = useState<QuickDispatchRailPosition | null>(null)
-  const [editorFocused, setEditorFocused] = useState(false)
-  const [retainedWhileFocused, setRetainedWhileFocused] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [utilityOpen, setUtilityOpen] = useState(false)
-
-  const railExpandedState = useMemo(
-    () =>
-      resolveQuickDispatchRailExpandedState({
-        retainedWhileFocused,
-        focused: editorFocused,
-        markdown: draft.markdown,
-        sending,
-        hasNotice: Boolean(notice),
-        targetPickerOpen: false,
-        mentionOpen: false,
-      }),
-    [draft.markdown, editorFocused, notice, retainedWhileFocused, sending],
+  const [enterToSend, setEnterToSend] = useState(() => loadRailPrefs().enterToSend)
+  const [pinned, setPinned] = useState(() => loadRailPrefs().pinned)
+  const [followActiveAgent, setFollowActiveAgent] = useState(
+    () => loadRailPrefs().followActiveAgent,
   )
 
-  useEffect(() => {
-    if (railExpandedState.retainedWhileFocused !== retainedWhileFocused) {
-      setRetainedWhileFocused(railExpandedState.retainedWhileFocused)
+  const persistPrefs = useCallback((patch: Partial<QuickDispatchRailPrefs>) => {
+    const next: QuickDispatchRailPrefs = {
+      ...prefsRef.current,
+      ...patch,
+      position: patch.position === undefined ? prefsRef.current.position : patch.position,
     }
-  }, [railExpandedState.retainedWhileFocused, retainedWhileFocused])
+    prefsRef.current = next
+    saveRailPrefs(next)
+  }, [])
 
-  const expanded = railExpandedState.expanded || utilityOpen
+  const handleEnterToSendChange = useCallback(
+    (next: boolean) => {
+      setEnterToSend(next)
+      persistPrefs({ enterToSend: next })
+    },
+    [persistPrefs],
+  )
+
+  const handleFollowActiveAgentChange = useCallback(
+    (next: boolean) => {
+      setFollowActiveAgent(next)
+      persistPrefs({ followActiveAgent: next })
+      if (next) {
+        const nextTargets = resolveTaskTargetIdsForDispatch({
+          stations,
+          activeStationId,
+          currentTargetIds: draft.targetStationIds,
+          followActiveAgent: true,
+        })
+        onDraftChange({ targetStationIds: nextTargets })
+      }
+    },
+    [activeStationId, draft.targetStationIds, onDraftChange, persistPrefs, stations],
+  )
+
+  const handlePinnedChange = useCallback(
+    (next: boolean) => {
+      setPinned(next)
+      persistPrefs({ pinned: next })
+      onPinnedChange?.(next)
+    },
+    [onPinnedChange, persistPrefs],
+  )
+
+  const handleClose = useCallback(() => {
+    if (pinned) {
+      handlePinnedChange(false)
+    }
+    onClose()
+  }, [handlePinnedChange, onClose, pinned])
+
+  // Follow mode UI sync: shell controller also locks targets on activeStationId
+  // change; this keeps the open overlay responsive when the checkbox is toggled
+  // or when open becomes true with follow enabled.
+  useEffect(() => {
+    if (!open || !followActiveAgent) {
+      return
+    }
+    const nextTargets = resolveTaskTargetIdsForDispatch({
+      stations,
+      activeStationId,
+      currentTargetIds: draft.targetStationIds,
+      followActiveAgent: true,
+    })
+    if (
+      nextTargets.length === draft.targetStationIds.length &&
+      nextTargets.every((id, index) => id === draft.targetStationIds[index])
+    ) {
+      return
+    }
+    onDraftChange({ targetStationIds: nextTargets })
+  }, [
+    activeStationId,
+    draft.targetStationIds,
+    followActiveAgent,
+    onDraftChange,
+    open,
+    stations,
+  ])
+
+  // Non-follow mode: only heal empty / invalid targets while the overlay is open.
+  useEffect(() => {
+    if (!open || followActiveAgent) {
+      return
+    }
+    const nextTargets = resolveTaskTargetIdsForDispatch({
+      stations,
+      activeStationId,
+      currentTargetIds: draft.targetStationIds,
+      followActiveAgent: false,
+    })
+    if (
+      nextTargets.length === draft.targetStationIds.length &&
+      nextTargets.every((id, index) => id === draft.targetStationIds[index])
+    ) {
+      return
+    }
+    onDraftChange({ targetStationIds: nextTargets })
+  }, [
+    activeStationId,
+    draft.targetStationIds,
+    followActiveAgent,
+    onDraftChange,
+    open,
+    stations,
+  ])
 
   useEffect(() => {
     if (!open) {
-      setEditorFocused(false)
-      setRetainedWhileFocused(false)
       setUtilityOpen(false)
       setDragging(false)
-      setPosition(null)
-      positionRef.current = null
+      if (!pinned) {
+        setPosition(null)
+        positionRef.current = null
+      }
       dragSessionRef.current = null
       return
     }
@@ -168,6 +258,9 @@ function GlobalTaskDispatchOverlayView({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (pinned) {
+          return
+        }
         event.preventDefault()
         event.stopPropagation()
         onClose()
@@ -186,7 +279,7 @@ function GlobalTaskDispatchOverlayView({
       window.cancelAnimationFrame(frame)
       window.removeEventListener('keydown', onKeyDown, { capture: true })
     }
-  }, [onClose, onSendTask, open])
+  }, [onClose, onSendTask, open, pinned])
 
   useEffect(() => {
     if (!open) {
@@ -217,7 +310,7 @@ function GlobalTaskDispatchOverlayView({
       const currentPosition =
         preferredPosition ??
         positionRef.current ??
-        loadRememberedRailPosition() ??
+        prefsRef.current.position ??
         fallbackPosition
       const baselineTop =
         preserveBottomEdge && positionRef.current
@@ -244,7 +337,7 @@ function GlobalTaskDispatchOverlayView({
     }
 
     const frame = window.requestAnimationFrame(() => {
-      syncRailPosition(loadRememberedRailPosition())
+      syncRailPosition(prefsRef.current.position)
     })
 
     const resizeObserver = new ResizeObserver(() => {
@@ -266,7 +359,7 @@ function GlobalTaskDispatchOverlayView({
       resizeObserver.disconnect()
       window.removeEventListener('resize', onViewportResize)
     }
-  }, [expanded, open])
+  }, [open])
 
   useEffect(() => {
     if (!open) {
@@ -312,7 +405,7 @@ function GlobalTaskDispatchOverlayView({
       dragSessionRef.current = null
       setDragging(false)
       if (positionRef.current) {
-        saveRememberedRailPosition(positionRef.current)
+        persistPrefs({ position: positionRef.current })
       }
     }
 
@@ -325,30 +418,21 @@ function GlobalTaskDispatchOverlayView({
       window.removeEventListener('pointerup', finishDrag)
       window.removeEventListener('pointercancel', finishDrag)
     }
-  }, [open])
+  }, [open, persistPrefs])
 
-  const opacityLabel = useMemo(() => `${Math.round(opacity * 100)}%`, [opacity])
-  const panelSurfaceOpacity = useMemo(
-    () => `${Math.round((0.74 + (opacity - 0.55) * 0.42) * 100)}%`,
-    [opacity],
-  )
-  const panelMutedOpacity = useMemo(
-    () => `${Math.round((0.68 + (opacity - 0.55) * 0.36) * 100)}%`,
-    [opacity],
-  )
-  const panelChromeOpacity = useMemo(() => `${Math.round((0.2 + (opacity - 0.55) * 0.3) * 100)}%`, [opacity])
-  const panelBorderOpacity = useMemo(() => `${Math.round((0.24 + (opacity - 0.55) * 0.28) * 100)}%`, [opacity])
-  const sideTintOpacity = useMemo(() => `${Math.round((0.06 + (opacity - 0.55) * 0.16) * 100)}%`, [opacity])
+  const opacityPercent = useMemo(() => Math.round(opacity * 100), [opacity])
+  const opacityLabel = useMemo(() => `${opacityPercent}%`, [opacityPercent])
   const targetSummary = useMemo(() => {
     const count = draft.targetStationIds.length
     if (count <= 0) {
       return t(locale, '未选目标', 'No target')
     }
     if (count === 1) {
-      return t(locale, '1 个目标', '1 target')
+      const station = stations.find((item) => item.id === draft.targetStationIds[0])
+      return station?.name ?? t(locale, '1 个目标', '1 target')
     }
     return t(locale, `${count} 个目标`, `${count} targets`)
-  }, [draft.targetStationIds.length, locale])
+  }, [draft.targetStationIds, locale, stations])
 
   if (!open || typeof document === 'undefined') {
     return null
@@ -358,22 +442,18 @@ function GlobalTaskDispatchOverlayView({
     <div className="task-quick-dispatch-overlay">
       <section
         ref={panelRef}
-        className={`task-quick-dispatch-panel ${expanded ? 'expanded' : 'compact'} ${dragging ? 'dragging' : ''} ${position ? 'is-positioned' : ''}`}
+        className={`task-quick-dispatch-panel ${dragging ? 'dragging' : ''} ${position ? 'is-positioned' : ''} ${pinned ? 'is-pinned' : ''} ${opacity <= 0.02 ? 'is-fully-transparent' : ''}`}
         role="complementary"
         aria-label={t(locale, '全局任务派发', 'Global task dispatch')}
         style={
           {
-            '--task-dispatch-panel-opacity': `${Math.round(opacity * 100)}%`,
-            '--task-dispatch-panel-surface-opacity': panelSurfaceOpacity,
-            '--task-dispatch-panel-muted-opacity': panelMutedOpacity,
-            '--task-dispatch-panel-chrome-opacity': panelChromeOpacity,
-            '--task-dispatch-panel-border-opacity': panelBorderOpacity,
-            '--task-dispatch-side-tint-opacity': sideTintOpacity,
+            '--task-dispatch-alpha': String(opacity),
             '--task-dispatch-panel-left': position ? `${position.left}px` : undefined,
             '--task-dispatch-panel-top': position ? `${position.top}px` : undefined,
           } as CSSProperties
         }
       >
+        <div className="task-quick-dispatch-panel-surface" aria-hidden="true" />
         <header className="task-quick-dispatch-rail-head">
           <button
             type="button"
@@ -429,6 +509,26 @@ function GlobalTaskDispatchOverlayView({
             <kbd className="task-quick-dispatch-shortcut">{shortcutLabel}</kbd>
             <button
               type="button"
+              className={`task-quick-dispatch-icon-btn ${pinned ? 'active' : ''}`}
+              onClick={() => {
+                handlePinnedChange(!pinned)
+              }}
+              aria-label={
+                pinned
+                  ? t(locale, '取消置顶', 'Unpin quick dispatch')
+                  : t(locale, '置顶钉住', 'Pin quick dispatch')
+              }
+              aria-pressed={pinned}
+              title={
+                pinned
+                  ? t(locale, '取消置顶', 'Unpin')
+                  : t(locale, '置顶钉住', 'Pin')
+              }
+            >
+              <AppIcon name="pin" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
               className={`task-quick-dispatch-icon-btn ${utilityOpen ? 'active' : ''}`}
               onClick={() => {
                 setUtilityOpen((previous) => !previous)
@@ -441,7 +541,7 @@ function GlobalTaskDispatchOverlayView({
             <button
               type="button"
               className="task-quick-dispatch-close"
-              onClick={onClose}
+              onClick={handleClose}
               aria-label={t(locale, '关闭快速派发浮层', 'Close quick dispatch')}
             >
               <AppIcon name="close" aria-hidden="true" />
@@ -449,27 +549,52 @@ function GlobalTaskDispatchOverlayView({
           </div>
         </header>
 
-        {expanded ? (
-          <div className="task-quick-dispatch-meta-row">
-            <span className="task-quick-dispatch-meta-copy">
-              {t(locale, '输入时展开，拖动后会记住位置。', 'Type to expand. Drag to remember the rail position.')}
-            </span>
-            <label className="task-quick-dispatch-opacity">
-              <span>{t(locale, '透明度', 'Opacity')}</span>
+        {utilityOpen ? (
+          <div className="task-quick-dispatch-utility">
+            <div className="task-quick-dispatch-opacity">
+              <span className="task-quick-dispatch-opacity-label">
+                {t(locale, '背景不透明度', 'Background opacity')}
+              </span>
               <div className="task-quick-dispatch-opacity-control">
+                <span className="task-quick-dispatch-opacity-end" aria-hidden="true">
+                  {t(locale, '透明', 'Clear')}
+                </span>
                 <input
                   type="range"
-                  min="0.55"
-                  max="1"
-                  step="0.01"
-                  value={opacity}
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={opacityPercent}
+                  aria-label={t(locale, '背景不透明度', 'Background opacity')}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={opacityPercent}
+                  aria-valuetext={opacityLabel}
+                  onInput={(event) => {
+                    onOpacityChange(Number(event.currentTarget.value) / 100)
+                  }}
                   onChange={(event) => {
-                    onOpacityChange(Number(event.target.value))
+                    onOpacityChange(Number(event.currentTarget.value) / 100)
+                  }}
+                  onDoubleClick={() => {
+                    onOpacityChange(DEFAULT_TASK_QUICK_DISPATCH_OPACITY)
                   }}
                 />
-                <strong>{opacityLabel}</strong>
+                <span className="task-quick-dispatch-opacity-end" aria-hidden="true">
+                  {t(locale, '实色', 'Solid')}
+                </span>
+                <button
+                  type="button"
+                  className="task-quick-dispatch-opacity-value"
+                  title={t(locale, '双击滑条可恢复默认', 'Double-click slider to reset')}
+                  onClick={() => {
+                    onOpacityChange(DEFAULT_TASK_QUICK_DISPATCH_OPACITY)
+                  }}
+                >
+                  {opacityLabel}
+                </button>
               </div>
-            </label>
+            </div>
           </div>
         ) : null}
 
@@ -477,6 +602,7 @@ function GlobalTaskDispatchOverlayView({
           <TaskCenterPane
             locale={locale}
             stations={stations}
+            activeStationId={activeStationId}
             draft={draft}
             sending={sending}
             draftSavedAtMs={draftSavedAtMs}
@@ -490,10 +616,16 @@ function GlobalTaskDispatchOverlayView({
             onSearchMentionFiles={onSearchMentionFiles}
             onClearMentionSearch={onClearMentionSearch}
             variant="overlay"
-            compact={!expanded}
             showHeader={false}
-            sendShortcutHint={t(locale, '按 Mod+Enter 立即发送', 'Press Mod+Enter to send')}
-            onEditorFocusChange={setEditorFocused}
+            enterToSend={enterToSend}
+            onEnterToSendChange={handleEnterToSendChange}
+            followActiveAgent={followActiveAgent}
+            onFollowActiveAgentChange={handleFollowActiveAgentChange}
+            sendShortcutHint={
+              enterToSend
+                ? t(locale, 'Enter 发送 · Shift+Enter 换行', 'Enter send · Shift+Enter newline')
+                : t(locale, 'Mod+Enter 发送', 'Mod+Enter to send')
+            }
           />
         </div>
       </section>
@@ -503,3 +635,7 @@ function GlobalTaskDispatchOverlayView({
 }
 
 export const GlobalTaskDispatchOverlay = memo(GlobalTaskDispatchOverlayView)
+
+export function readQuickDispatchPinnedFromStorage(): boolean {
+  return loadRailPrefs().pinned
+}

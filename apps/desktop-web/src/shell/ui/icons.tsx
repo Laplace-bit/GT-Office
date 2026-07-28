@@ -46,6 +46,8 @@ import {
   Minus,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   RefreshCcw,
   RefreshCw,
@@ -131,6 +133,8 @@ export type AppIconName =
   | 'alert-triangle'
   | 'alert-circle'
   | 'check-circle'
+  | 'pin'
+  | 'pin-off'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
@@ -198,6 +202,8 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   'alert-triangle': AlertTriangle,
   'alert-circle': CircleAlert,
   'check-circle': CheckCircle2,
+  pin: Pin,
+  'pin-off': PinOff,
 }
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {

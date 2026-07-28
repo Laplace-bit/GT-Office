@@ -6,6 +6,7 @@ import {
   preserveFocusTabOrder,
   resolveFocusStageStationVisibility,
   resolveRenderedActiveStationId,
+  shouldUseSingleStationFillLayout,
 } from '../src/features/workspace-hub/workbench-focus-layout-model.js'
 
 test('focus layout makes non-selected stage slots inert so they cannot block terminal interaction', () => {
@@ -50,6 +51,12 @@ test('a single visible station uses the full-size focus stage', () => {
   assert.equal(isSingleStationFocusLayout('focus', 1), true)
   assert.equal(isSingleStationFocusLayout('focus', 2), false)
   assert.equal(isSingleStationFocusLayout('auto', 1), false)
+})
+
+test('any layout with one visible station fills the stage like maximize', () => {
+  assert.equal(shouldUseSingleStationFillLayout(1), true)
+  assert.equal(shouldUseSingleStationFillLayout(0), false)
+  assert.equal(shouldUseSingleStationFillLayout(2), false)
 })
 
 test('focus layout renders the selected station as active even when the global active station differs', () => {

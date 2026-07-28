@@ -29,7 +29,7 @@ import { resolveStationCardStatusMeta } from './station-card-header-model'
 import type { AgentStation } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
-  isSingleStationFocusLayout,
+  shouldUseSingleStationFillLayout,
   preserveFocusTabOrder,
   resolveFocusStageStationVisibility,
   resolveRenderedActiveStationId,
@@ -1659,7 +1659,7 @@ function WorkbenchCanvasPanelView({
             className={[
               'station-grid',
               'focus-mode',
-              isSingleStationFocusLayout(container.layoutMode, displayedStations.length) ? 'single-station-mode' : '',
+              shouldUseSingleStationFillLayout(displayedStations.length) ? 'single-station-mode' : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -1689,10 +1689,29 @@ function WorkbenchCanvasPanelView({
         ) : (
           <div
             ref={gridRef}
-            className={['station-grid', container.layoutMode === 'custom' ? 'custom-layout' : 'auto-layout'].join(' ')}
-            style={gridStyle}
-            data-layout-mode={container.layoutMode === 'custom' ? 'fixed' : 'auto'}
+            className={[
+              'station-grid',
+              container.layoutMode === 'custom' ? 'custom-layout' : 'auto-layout',
+              shouldUseSingleStationFillLayout(displayedStations.length) ? 'single-station-mode' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={
+              shouldUseSingleStationFillLayout(displayedStations.length)
+                ? undefined
+                : gridStyle
+            }
+            data-layout-mode={
+              shouldUseSingleStationFillLayout(displayedStations.length)
+                ? 'auto'
+                : container.layoutMode === 'custom'
+                  ? 'fixed'
+                  : 'auto'
+            }
             data-layout-preset={container.layoutMode}
+            data-single-station-fill={
+              shouldUseSingleStationFillLayout(displayedStations.length) ? 'true' : undefined
+            }
           >
             {stations
               .filter((station) => station.scope !== 'designer')

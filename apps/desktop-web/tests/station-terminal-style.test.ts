@@ -88,6 +88,6 @@ test('focus terminals use a larger shared radius without an inset card', () => {
   )
   assert.match(
     workbenchCanvasScss,
-    /\.station-grid\.fullscreen-mode,[\s\S]*?\.station-grid\.focus-mode\.single-station-mode\s*\{\s*padding:\s*0;/,
+    /\.station-grid\.fullscreen-mode,[\s\S]*?\.station-grid\.focus-mode\.single-station-mode,[\s\S]*?\.station-grid\.auto-layout\.single-station-mode,[\s\S]*?\.station-grid\.custom-layout\.single-station-mode\s*\{\s*padding:\s*0;[\s\S]*?gap:\s*0;/,
   )
 })

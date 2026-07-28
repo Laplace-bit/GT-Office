@@ -20,6 +20,7 @@ export interface TaskMentionFileCandidate {
 interface TaskCenterPaneProps {
   locale: Locale
   stations: AgentStation[]
+  activeStationId?: string | null
   draft: TaskDraftState
   sending: boolean
   draftSavedAtMs: number | null
@@ -39,6 +40,10 @@ interface TaskCenterPaneProps {
   description?: string | null
   sendShortcutHint?: string | null
   onEditorFocusChange?: (focused: boolean) => void
+  enterToSend?: boolean
+  onEnterToSendChange?: (value: boolean) => void
+  followActiveAgent?: boolean
+  onFollowActiveAgentChange?: (value: boolean) => void
 }
 
 interface MentionRange {
@@ -76,9 +81,11 @@ function resolveMentionRange(value: string, cursor: number): MentionRange | null
     end: cursor,
     query,
   }
-} 
+}
 
 const DEFAULT_ROOT_FONT_SIZE = 14
+const OVERLAY_TEXTAREA_MIN_LINES = 3
+const OVERLAY_TEXTAREA_MAX_LINES = 12
 
 function getRootFontSize(): number {
   if (typeof window === 'undefined') {
@@ -90,6 +97,47 @@ function getRootFontSize(): number {
 
 function toRem(value: number): string {
   return `${value / getRootFontSize()}rem`
+}
+
+function measureTextareaMetrics(textarea: HTMLTextAreaElement): {
+  lineHeight: number
+  verticalChrome: number
+} {
+  const style = window.getComputedStyle(textarea)
+  const lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.5 || 20
+  const paddingTop = Number.parseFloat(style.paddingTop) || 0
+  const paddingBottom = Number.parseFloat(style.paddingBottom) || 0
+  const borderTop = Number.parseFloat(style.borderTopWidth) || 0
+  const borderBottom = Number.parseFloat(style.borderBottomWidth) || 0
+  return {
+    lineHeight,
+    verticalChrome: paddingTop + paddingBottom + borderTop + borderBottom,
+  }
+}
+
+function syncOverlayTextareaHeight(textarea: HTMLTextAreaElement): void {
+  const { lineHeight, verticalChrome } = measureTextareaMetrics(textarea)
+  const minHeight = Math.ceil(lineHeight * OVERLAY_TEXTAREA_MIN_LINES + verticalChrome)
+  const maxHeight = Math.ceil(lineHeight * OVERLAY_TEXTAREA_MAX_LINES + verticalChrome)
+
+  // Prefer growing from the current box (no collapse flash). Only remeasure from
+  // the minimum when content has shrunk below the current client height.
+  let contentHeight = Math.ceil(textarea.scrollHeight)
+  if (contentHeight < textarea.clientHeight - 1) {
+    const previousTransition = textarea.style.transition
+    textarea.style.transition = 'none'
+    textarea.style.height = `${minHeight}px`
+    contentHeight = Math.ceil(textarea.scrollHeight)
+    // Force reflow so the next height assignment can animate.
+    void textarea.offsetHeight
+    textarea.style.transition = previousTransition || ''
+  }
+
+  const nextHeight = Math.min(maxHeight, Math.max(minHeight, contentHeight))
+  if (Math.abs(textarea.offsetHeight - nextHeight) > 0.5) {
+    textarea.style.height = `${nextHeight}px`
+  }
+  textarea.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden'
 }
 
 function resolveTextareaCaretViewportPosition(textarea: HTMLTextAreaElement, cursor: number) {
@@ -158,6 +206,7 @@ function resolveTextareaCaretViewportPosition(textarea: HTMLTextAreaElement, cur
 function TaskCenterPaneView({
   locale,
   stations,
+  activeStationId = null,
   draft,
   sending,
   draftSavedAtMs: _draftSavedAtMs,
@@ -177,7 +226,12 @@ function TaskCenterPaneView({
   description = null,
   sendShortcutHint = null,
   onEditorFocusChange,
+  enterToSend = false,
+  onEnterToSendChange,
+  followActiveAgent = false,
+  onFollowActiveAgentChange,
 }: TaskCenterPaneProps) {
+  const isOverlay = variant === 'overlay'
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
   const mentionQueryRef = useRef('')
@@ -193,16 +247,38 @@ function TaskCenterPaneView({
   } | null>(null)
 
   const selectedCount = draft.targetStationIds.length
-  const filteredStations = useMemo(() => {
-    const keyword = targetFilter.trim().toLowerCase()
-    if (!keyword) {
-      return stations
+  const selectedTargetLabel = useMemo(() => {
+    if (selectedCount === 0) {
+      return t(locale, '选择 Agent', 'Select agent')
     }
-    return stations.filter((station) => {
-      const searchText = `${station.name} ${station.id}`.toLowerCase()
-      return searchText.includes(keyword)
+    if (selectedCount === 1) {
+      const station = stations.find((item) => item.id === draft.targetStationIds[0])
+      return station?.name ?? draft.targetStationIds[0]
+    }
+    return t(locale, `${selectedCount} 个 Agent`, `${selectedCount} agents`)
+  }, [draft.targetStationIds, locale, selectedCount, stations])
+
+  const orderedStations = useMemo(() => {
+    const keyword = targetFilter.trim().toLowerCase()
+    const filtered = !keyword
+      ? stations
+      : stations.filter((station) => {
+          const searchText = `${station.name} ${station.id}`.toLowerCase()
+          return searchText.includes(keyword)
+        })
+    if (!activeStationId) {
+      return filtered
+    }
+    return [...filtered].sort((left, right) => {
+      if (left.id === activeStationId) {
+        return -1
+      }
+      if (right.id === activeStationId) {
+        return 1
+      }
+      return 0
     })
-  }, [stations, targetFilter])
+  }, [activeStationId, stations, targetFilter])
 
   useEffect(() => {
     if (!targetPickerOpen) {
@@ -215,7 +291,7 @@ function TaskCenterPaneView({
       }
       const rect = trigger.getBoundingClientRect()
       const viewportPadding = 16
-      const minWidth = 320
+      const minWidth = isOverlay ? Math.max(rect.width, 260) : 320
       const viewportWidth = window.innerWidth
       const width = Math.min(
         Math.max(rect.width, minWidth),
@@ -225,8 +301,14 @@ function TaskCenterPaneView({
         Math.max(rect.left, viewportPadding),
         Math.max(viewportPadding, viewportWidth - width - viewportPadding),
       )
+      const preferredTop = rect.bottom + 6
+      const estimatedHeight = 280
+      const top =
+        preferredTop + estimatedHeight > window.innerHeight - viewportPadding
+          ? Math.max(viewportPadding, rect.top - estimatedHeight - 6)
+          : preferredTop
       setTargetPopoverStyle({
-        top: rect.bottom + 6,
+        top,
         left,
         width,
       })
@@ -238,7 +320,7 @@ function TaskCenterPaneView({
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
-  }, [targetPickerOpen])
+  }, [isOverlay, targetPickerOpen])
 
   useEffect(() => {
     if (!targetPickerOpen) {
@@ -267,6 +349,12 @@ function TaskCenterPaneView({
     if (!textarea) {
       return
     }
+
+    if (isOverlay) {
+      syncOverlayTextareaHeight(textarea)
+      return
+    }
+
     const syncHeight = () => {
       textarea.style.height = 'auto'
       textarea.style.height = toRem(textarea.scrollHeight)
@@ -275,7 +363,7 @@ function TaskCenterPaneView({
     const observer = new ResizeObserver(syncHeight)
     observer.observe(textarea)
     return () => observer.disconnect()
-  }, [draft.markdown])
+  }, [draft.markdown, isOverlay])
 
   useEffect(() => {
     if (!mentionRange) {
@@ -377,30 +465,61 @@ function TaskCenterPaneView({
     })
   }
 
-  return (
-    <aside
-      className={`panel task-center-pane ${variant === 'overlay' ? 'task-center-pane--overlay' : ''} ${compact ? 'task-center-pane--compact' : ''}`}
-    >
-      {showHeader ? (
-        <header className="task-center-header">
-          <h2>{title ?? t(locale, 'taskCenter.title')}</h2>
-          {description ? <p>{description}</p> : null}
-        </header>
-      ) : null}
+  const selectStationAsPrimary = (stationId: string) => {
+    // Manual pick leaves follow-active mode so the choice sticks.
+    if (followActiveAgent && onFollowActiveAgentChange) {
+      onFollowActiveAgentChange(false)
+    }
+    onDraftChange({ targetStationIds: [stationId] })
+    if (isOverlay) {
+      setTargetPickerOpen(false)
+    }
+  }
 
-      <section className="task-center-target-picker">
+  const toggleStationTarget = (stationId: string, checked: boolean) => {
+    if (followActiveAgent && onFollowActiveAgentChange) {
+      onFollowActiveAgentChange(false)
+    }
+    onDraftChange({
+      targetStationIds: toggleTaskTarget(draft.targetStationIds, stationId, checked),
+    })
+  }
+
+  const targetPicker = (
+    <section className={`task-center-target-picker ${isOverlay ? 'task-center-target-picker--inline' : ''}`}>
+      {!isOverlay ? (
         <div className="task-center-targets-header">
           <span>{t(locale, 'taskCenter.targetAgents')}</span>
           {selectedCount > 0 ? <strong>{selectedCount}</strong> : null}
         </div>
-        <button
-          ref={targetTriggerRef}
-          type="button"
-          className={`task-center-target-tag-trigger ${targetPickerOpen ? 'open' : ''}`}
-          onClick={() => {
-            setTargetPickerOpen((prev) => !prev)
-          }}
-        >
+      ) : null}
+      <button
+        ref={targetTriggerRef}
+        type="button"
+        className={`task-center-target-tag-trigger ${targetPickerOpen ? 'open' : ''} ${isOverlay ? 'is-compact' : ''} ${followActiveAgent ? 'is-following' : ''}`}
+        onClick={() => {
+          setTargetPickerOpen((prev) => !prev)
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={targetPickerOpen}
+        title={
+          followActiveAgent
+            ? t(locale, '已跟随激活 Agent，手动选择将关闭跟随', 'Following active agent — manual pick disables follow')
+            : undefined
+        }
+      >
+        {isOverlay ? (
+          <span className="task-center-target-compact-label">
+            <em>{selectedTargetLabel}</em>
+            {followActiveAgent ? (
+              <i className="task-center-target-active-badge">
+                {t(locale, '跟随', 'Follow')}
+              </i>
+            ) : selectedCount === 1 && draft.targetStationIds[0] === activeStationId ? (
+              <i className="task-center-target-active-badge">{t(locale, '当前', 'Active')}</i>
+            ) : null}
+          </span>
+        ) : (
           <div className="task-center-target-tag-wrap">
             {draft.targetStationIds.length === 0 ? (
               <span className="task-center-target-placeholder">
@@ -440,30 +559,38 @@ function TaskCenterPaneView({
               })
             )}
           </div>
-          <strong>▾</strong>
-        </button>
-      </section>
-      {targetPickerOpen && targetPopoverStyle && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-              className="task-center-target-popover-portal"
-              style={
-                {
-                  '--task-center-target-popover-top': toRem(targetPopoverStyle.top),
-                  '--task-center-target-popover-left': toRem(targetPopoverStyle.left),
-                  '--task-center-target-popover-width': toRem(targetPopoverStyle.width),
-                } as CSSProperties
-              }
-            >
-              <div className="task-center-target-popover-tools">
-                <input
-                  type="search"
-                  value={targetFilter}
-                  placeholder={t(locale, 'taskCenter.agentFilterPlaceholder')}
-                  onChange={(event) => {
-                    setTargetFilter(event.target.value)
-                  }}
-                />
+        )}
+        <strong aria-hidden="true">▾</strong>
+      </button>
+    </section>
+  )
+
+  const targetPopover =
+    targetPickerOpen && targetPopoverStyle && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className={`task-center-target-popover-portal ${isOverlay ? 'is-overlay' : ''}`}
+            style={
+              {
+                '--task-center-target-popover-top': toRem(targetPopoverStyle.top),
+                '--task-center-target-popover-left': toRem(targetPopoverStyle.left),
+                '--task-center-target-popover-width': toRem(targetPopoverStyle.width),
+              } as CSSProperties
+            }
+          >
+            <div className="task-center-target-popover-tools">
+              <input
+                type="search"
+                value={targetFilter}
+                placeholder={t(locale, 'taskCenter.agentFilterPlaceholder')}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  setTargetFilter(event.target.value)
+                }}
+              />
+              {!isOverlay ? (
                 <div className="task-center-target-actions">
                   <button
                     type="button"
@@ -488,76 +615,139 @@ function TaskCenterPaneView({
                     {t(locale, 'taskCenter.clearSelection')}
                   </button>
                 </div>
-              </div>
-              {filteredStations.length === 0 ? (
-                <p className="task-center-empty">{t(locale, 'taskCenter.noAgents')}</p>
               ) : (
-                <ul className="task-center-target-list">
-                  {filteredStations.map((station) => {
-                    const checked = draft.targetStationIds.includes(station.id)
-                    return (
-                      <li key={station.id}>
-                        <button
-                          type="button"
-                          className={checked ? 'active' : ''}
-                          onClick={() => {
-                            onDraftChange({
-                              targetStationIds: toggleTaskTarget(
-                                draft.targetStationIds,
-                                station.id,
-                                !checked,
-                              ),
-                            })
+                <div className="task-center-target-actions task-center-target-actions--overlay">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeStationId) {
+                        selectStationAsPrimary(activeStationId)
+                      }
+                    }}
+                    disabled={!activeStationId}
+                  >
+                    {t(locale, '用当前 Agent', 'Use active')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onDraftChange({
+                        targetStationIds: stations.map((station) => station.id),
+                      })
+                    }
+                    disabled={stations.length === 0}
+                  >
+                    {t(locale, '全选', 'All')}
+                  </button>
+                </div>
+              )}
+            </div>
+            {orderedStations.length === 0 ? (
+              <p className="task-center-empty">{t(locale, 'taskCenter.noAgents')}</p>
+            ) : (
+              <ul className="task-center-target-list">
+                {orderedStations.map((station) => {
+                  const checked = draft.targetStationIds.includes(station.id)
+                  const isActive = station.id === activeStationId
+                  return (
+                    <li key={station.id}>
+                      <button
+                        type="button"
+                        className={`${checked ? 'active' : ''} ${isActive ? 'is-current' : ''}`}
+                        onClick={(event) => {
+                          if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                            toggleStationTarget(station.id, !checked)
+                            return
+                          }
+                          if (isOverlay) {
+                            selectStationAsPrimary(station.id)
+                            return
+                          }
+                          toggleStationTarget(station.id, !checked)
+                        }}
+                      >
+                        <span className="task-center-target-list-main">
+                          <span>{station.name}</span>
+                          {isActive ? (
+                            <em className="task-center-target-active-badge">
+                              {t(locale, '当前', 'Active')}
+                            </em>
+                          ) : null}
+                        </span>
+                        <i
+                          role="presentation"
+                          className={`task-center-target-check ${checked ? 'is-checked' : ''}`}
+                          onClick={(event) => {
+                            if (!isOverlay) {
+                              return
+                            }
+                            event.preventDefault()
+                            event.stopPropagation()
+                            toggleStationTarget(station.id, !checked)
                           }}
                         >
-                          <span>{station.name}</span>
-                          <i>{checked ? '✓' : ''}</i>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>,
-            document.body,
-          )
-        : null}
+                          {checked ? '✓' : ''}
+                        </i>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {isOverlay ? (
+              <p className="task-center-target-popover-hint">
+                {t(locale, '点击选择 · ⌘/Ctrl 多选', 'Click to select · ⌘/Ctrl multi-select')}
+              </p>
+            ) : null}
+          </div>,
+          document.body,
+        )
+      : null
 
-      <section className="task-center-editor">
+  const editorSection = (
+    <section className="task-center-editor">
+      {!isOverlay ? (
         <header className="task-center-editor-header">
           <strong>{t(locale, 'taskCenter.editorLabel')}</strong>
         </header>
+      ) : null}
 
-        <div className="task-center-editor-input-wrap">
-          <textarea
-            ref={textareaRef}
-            value={draft.markdown}
-            placeholder={t(locale, 'taskCenter.markdownPlaceholder')}
-            onFocus={() => {
-              onEditorFocusChange?.(true)
-            }}
-            onBlur={() => {
-              onEditorFocusChange?.(false)
-            }}
-            onChange={(event) => {
-              const value = event.target.value
-              const cursor = event.target.selectionStart ?? value.length
-              onDraftChange({ markdown: value })
-              syncMentionState(value, cursor)
-            }}
-            onClick={(event) => {
-              const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length
-              syncMentionState(event.currentTarget.value, cursor)
-            }}
-            onKeyUp={(event) => {
-              const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length
-              syncMentionState(event.currentTarget.value, cursor)
-            }}
-            onKeyDown={(event) => {
-              const mentionVisible = Boolean(mentionRange)
-              if (!mentionVisible) {
-                return
-              }
+      <div className="task-center-editor-input-wrap">
+        <textarea
+          ref={textareaRef}
+          value={draft.markdown}
+          placeholder={t(locale, 'taskCenter.markdownPlaceholder')}
+          rows={isOverlay ? OVERLAY_TEXTAREA_MIN_LINES : undefined}
+          autoCapitalize="none"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
+          onFocus={() => {
+            onEditorFocusChange?.(true)
+          }}
+          onBlur={() => {
+            onEditorFocusChange?.(false)
+          }}
+          onChange={(event) => {
+            const value = event.target.value
+            const cursor = event.target.selectionStart ?? value.length
+            onDraftChange({ markdown: value })
+            syncMentionState(value, cursor)
+            if (isOverlay) {
+              syncOverlayTextareaHeight(event.currentTarget)
+            }
+          }}
+          onClick={(event) => {
+            const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length
+            syncMentionState(event.currentTarget.value, cursor)
+          }}
+          onKeyUp={(event) => {
+            const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length
+            syncMentionState(event.currentTarget.value, cursor)
+          }}
+          onKeyDown={(event) => {
+            const mentionVisible = Boolean(mentionRange)
+            if (mentionVisible) {
               const maxIndex = mentionCandidates.length - 1
               if (event.key === 'ArrowDown') {
                 event.preventDefault()
@@ -578,29 +768,101 @@ function TaskCenterPaneView({
                 event.preventDefault()
                 setMentionRange(null)
                 onClearMentionSearch()
+                return
               }
-            }}
-          />
+            }
 
-        </div>
+            if (event.key !== 'Enter') {
+              return
+            }
 
-        <div className="task-center-editor-footer">
-          {sendShortcutHint ? (
-            <span className="task-center-send-shortcut-hint">{sendShortcutHint}</span>
-          ) : null}
-          <button
-            type="button"
-            className="task-center-inline-send primary"
-            onClick={onSendTask}
-            disabled={sending || stations.length === 0}
+            if (enterToSend) {
+              if (event.shiftKey) {
+                return
+              }
+              event.preventDefault()
+              onSendTask()
+              return
+            }
+
+            if (event.metaKey || event.ctrlKey) {
+              event.preventDefault()
+              onSendTask()
+            }
+          }}
+        />
+      </div>
+
+      <div className={`task-center-editor-footer ${isOverlay ? 'task-center-editor-footer--overlay' : ''}`}>
+        {isOverlay ? targetPicker : null}
+        {isOverlay && onFollowActiveAgentChange ? (
+          <label
+            className={`task-center-follow-active ${followActiveAgent ? 'is-on' : ''}`}
+            title={t(
+              locale,
+              '勾选后接收任务的 Agent 始终跟随当前激活的 Agent',
+              'When checked, the receiving agent always follows the active agent',
+            )}
           >
-            <AppIcon name="sparkles" className="vb-icon" />
-            <span>
-              {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
-            </span>
-          </button>
-        </div>
-      </section>
+            <input
+              type="checkbox"
+              checked={followActiveAgent}
+              onChange={(event) => {
+                onFollowActiveAgentChange(event.target.checked)
+              }}
+            />
+            <span>{t(locale, '跟随激活', 'Follow active')}</span>
+          </label>
+        ) : null}
+        {isOverlay && onEnterToSendChange ? (
+          <label className="task-center-enter-to-send">
+            <input
+              type="checkbox"
+              checked={enterToSend}
+              onChange={(event) => {
+                onEnterToSendChange(event.target.checked)
+              }}
+            />
+            <span>{t(locale, 'Enter 发送', 'Enter to send')}</span>
+          </label>
+        ) : null}
+        {!isOverlay && sendShortcutHint ? (
+          <span className="task-center-send-shortcut-hint">{sendShortcutHint}</span>
+        ) : null}
+        {isOverlay && sendShortcutHint ? (
+          <span className="task-center-send-shortcut-hint task-center-send-shortcut-hint--overlay">
+            {sendShortcutHint}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="task-center-inline-send primary"
+          onClick={onSendTask}
+          disabled={sending || stations.length === 0}
+        >
+          <AppIcon name="sparkles" className="vb-icon" />
+          <span>
+            {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
+          </span>
+        </button>
+      </div>
+    </section>
+  )
+
+  return (
+    <aside
+      className={`panel task-center-pane ${isOverlay ? 'task-center-pane--overlay' : ''} ${compact ? 'task-center-pane--compact' : ''}`}
+    >
+      {showHeader ? (
+        <header className="task-center-header">
+          <h2>{title ?? t(locale, 'taskCenter.title')}</h2>
+          {description ? <p>{description}</p> : null}
+        </header>
+      ) : null}
+
+      {!isOverlay ? targetPicker : null}
+      {targetPopover}
+      {editorSection}
 
       <section className="task-center-send-row">
         {notice ? (

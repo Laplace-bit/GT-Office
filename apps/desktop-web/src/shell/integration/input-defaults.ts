@@ -1,8 +1,23 @@
-const TEXT_ENTRY_SELECTOR = 'input:not([autocapitalize]), textarea:not([autocapitalize]), [contenteditable="true"]:not([autocapitalize])'
+const TEXT_ENTRY_SELECTOR =
+  'input:not([type="button"]):not([type="checkbox"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([type="image"]):not([type="radio"]):not([type="range"]):not([type="reset"]):not([type="submit"]), textarea, [contenteditable="true"]'
 
-function disableAutocapitalize(element: Element): void {
-  if (element.matches(TEXT_ENTRY_SELECTOR)) {
-    element.setAttribute('autocapitalize', 'off')
+function applyTextEntryDefaults(element: Element): void {
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+
+  if (!element.matches(TEXT_ENTRY_SELECTOR)) {
+    return
+  }
+
+  // Prefer the HTML living standard value "none" so sentence capitalisation
+  // after Enter is disabled in WebKit (macOS / iOS) and Chromium.
+  if (element.getAttribute('autocapitalize') !== 'none') {
+    element.setAttribute('autocapitalize', 'none')
+  }
+
+  if (element.getAttribute('autocorrect') !== 'off') {
+    element.setAttribute('autocorrect', 'off')
   }
 }
 
@@ -11,7 +26,7 @@ export function installInputDefaults(): void {
     return
   }
 
-  document.querySelectorAll(TEXT_ENTRY_SELECTOR).forEach(disableAutocapitalize)
+  document.querySelectorAll(TEXT_ENTRY_SELECTOR).forEach(applyTextEntryDefaults)
 
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
@@ -20,8 +35,8 @@ export function installInputDefaults(): void {
           return
         }
 
-        disableAutocapitalize(node)
-        node.querySelectorAll(TEXT_ENTRY_SELECTOR).forEach(disableAutocapitalize)
+        applyTextEntryDefaults(node)
+        node.querySelectorAll(TEXT_ENTRY_SELECTOR).forEach(applyTextEntryDefaults)
       })
     })
   })

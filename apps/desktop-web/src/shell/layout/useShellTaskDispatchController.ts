@@ -4,6 +4,9 @@ import {
   areTaskTargetsEqual,
   buildTaskCenterDraftFilePath,
   createInitialTaskDraft,
+  parseQuickDispatchRailPrefs,
+  QUICK_DISPATCH_RAIL_STORAGE_KEY,
+  resolveTaskTargetIdsForDispatch,
   resolveValidTaskTargets,
   useTaskDispatchActions,
   useTaskCenterDraftPersistence,
@@ -105,6 +108,41 @@ export function useShellTaskDispatchController({
       targetStationIds: nextTargetIds,
     }))
   }, [stationsRef, taskDraft.targetStationIds])
+
+  // Follow-active: when the global active station changes, lock receivers to it.
+  // Lives here (not only in the overlay) so activation always wins even if the
+  // floating composer effect is skipped or a draft snapshot races it.
+  useEffect(() => {
+    let followActiveAgent = true
+    try {
+      if (typeof window !== 'undefined') {
+        followActiveAgent = parseQuickDispatchRailPrefs(
+          window.localStorage.getItem(QUICK_DISPATCH_RAIL_STORAGE_KEY),
+        ).followActiveAgent
+      }
+    } catch {
+      followActiveAgent = true
+    }
+    if (!followActiveAgent) {
+      return
+    }
+
+    setTaskDraft((prev) => {
+      const nextTargetIds = resolveTaskTargetIdsForDispatch({
+        stations: stationsRef.current,
+        activeStationId,
+        currentTargetIds: prev.targetStationIds,
+        followActiveAgent: true,
+      })
+      if (areTaskTargetsEqual(nextTargetIds, prev.targetStationIds)) {
+        return prev
+      }
+      return {
+        ...prev,
+        targetStationIds: nextTargetIds,
+      }
+    })
+  }, [activeStationId, setTaskDraft, stationsRef])
 
   // --- Callbacks ---
 

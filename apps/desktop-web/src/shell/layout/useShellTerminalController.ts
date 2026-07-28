@@ -4483,11 +4483,26 @@ export function useShellTerminalController({
     delete stationSubmitSequenceRef.current[stationId]
     delete stationTerminalRestoreStateRef.current[stationId]
     stationTerminalInputControllerRef.current?.clear(stationId)
+    // Closing the agent must not leave a parked live buffer that presentation
+    // can resurrect as a "running" terminal after a workspace switch.
+    disposeParkedStationTerminalHost(workspaceId, stationId)
 
     if (workspaceId) {
       const document = workspaceTerminalCacheRef.current[workspaceId]
       if (document) {
-        removeWorkspaceTerminalSessionBinding(document, sessionId, 'killed')
+        // Persist idle (not killed/exited chrome) so warm restore returns to history.
+        removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
+        const closedRuntime = document.stationTerminals[stationId]
+        if (closedRuntime) {
+          document.stationTerminals[stationId] = {
+            ...closedRuntime,
+            sessionId: null,
+            stateRaw: 'idle',
+            shell: null,
+            cwdMode: 'workspace_root',
+            resolvedCwd: null,
+          }
+        }
       }
       void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
         // Runtime sync will reconcile if a later session is started.

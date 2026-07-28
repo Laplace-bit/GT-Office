@@ -11,6 +11,11 @@ import {
   type TaskDispatchRecord,
   type TaskDraftState,
 } from './task-center-model'
+import {
+  parseQuickDispatchRailPrefs,
+  QUICK_DISPATCH_RAIL_STORAGE_KEY,
+  resolveTaskTargetIdsForDispatch,
+} from './global-task-dispatch-rail-state'
 
 interface UseTaskCenterDraftPersistenceInput {
   activeWorkspaceId: string | null
@@ -38,6 +43,45 @@ interface UseTaskCenterDraftPersistenceInput {
   }) => Promise<void>
 }
 
+function readFollowActiveAgentPref(): boolean {
+  if (typeof window === 'undefined') {
+    return true
+  }
+  try {
+    return parseQuickDispatchRailPrefs(
+      window.localStorage.getItem(QUICK_DISPATCH_RAIL_STORAGE_KEY),
+    ).followActiveAgent
+  } catch {
+    return true
+  }
+}
+
+function applyFollowActiveAgentToDraft(
+  draft: TaskDraftState,
+  stations: AgentStation[],
+  activeStationId: string,
+): TaskDraftState {
+  if (!readFollowActiveAgentPref()) {
+    return draft
+  }
+  const targetStationIds = resolveTaskTargetIdsForDispatch({
+    stations,
+    activeStationId,
+    currentTargetIds: draft.targetStationIds,
+    followActiveAgent: true,
+  })
+  if (
+    targetStationIds.length === draft.targetStationIds.length &&
+    targetStationIds.every((id, index) => id === draft.targetStationIds[index])
+  ) {
+    return draft
+  }
+  return {
+    ...draft,
+    targetStationIds,
+  }
+}
+
 export function useTaskCenterDraftPersistence({
   activeWorkspaceId,
   taskCenterDraftFilePath,
@@ -58,6 +102,11 @@ export function useTaskCenterDraftPersistence({
 }: UseTaskCenterDraftPersistenceInput): void {
   const taskPersistTimerRef = useRef<number | null>(null)
   const taskSnapshotHydratingRef = useRef(false)
+  const activeStationIdRef = useRef(activeStationId)
+
+  useEffect(() => {
+    activeStationIdRef.current = activeStationId
+  }, [activeStationId])
 
   useEffect(() => {
     return () => {
@@ -69,6 +118,8 @@ export function useTaskCenterDraftPersistence({
     }
   }, [])
 
+  // Rehydrate only when the workspace changes — not when the active station changes.
+  // Rehydrating on activeStationId used to overwrite follow-active target updates.
   useEffect(() => {
     if (!activeWorkspaceId) {
       taskSnapshotHydratingRef.current = false
@@ -83,7 +134,9 @@ export function useTaskCenterDraftPersistence({
 
     let cancelled = false
     const hydrateTaskCenter = async () => {
-      const defaultDraft = createInitialTaskDraft(stationsRef.current, activeStationId)
+      const stations = stationsRef.current
+      const currentActiveStationId = activeStationIdRef.current
+      const defaultDraft = createInitialTaskDraft(stations, currentActiveStationId)
       const storageKey = buildTaskCenterStorageKey(activeWorkspaceId)
       let snapshotFromStorage = null
 
@@ -117,13 +170,21 @@ export function useTaskCenterDraftPersistence({
       }
 
       if (snapshotFromStorage) {
-        setTaskDraft(snapshotFromStorage.draft)
+        setTaskDraft(
+          applyFollowActiveAgentToDraft(
+            snapshotFromStorage.draft,
+            stations,
+            activeStationIdRef.current,
+          ),
+        )
         setTaskDispatchHistory(
           snapshotFromStorage.dispatchHistory.slice(0, taskDispatchHistoryLimit),
         )
         setTaskDraftSavedAtMs(snapshotFromStorage.updatedAtMs)
       } else {
-        setTaskDraft(defaultDraft)
+        setTaskDraft(
+          applyFollowActiveAgentToDraft(defaultDraft, stations, activeStationIdRef.current),
+        )
         setTaskDispatchHistory([])
         setTaskDraftSavedAtMs(null)
       }
@@ -141,7 +202,6 @@ export function useTaskCenterDraftPersistence({
       cancelled = true
     }
   }, [
-    activeStationId,
     activeWorkspaceId,
     onReadTaskSnapshotFile,
     setTaskDispatchHistory,

@@ -203,7 +203,8 @@ export function normalizeTaskQuickDispatchOpacity(
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return fallback
   }
-  return Math.max(0.55, Math.min(1, Math.round(value * 100) / 100))
+  // Allow fully transparent (0) through fully opaque (1).
+  return Math.max(0, Math.min(1, Math.round(value * 100) / 100))
 }
 
 function isTaskDispatchRecord(value: unknown): value is TaskDispatchRecord {

@@ -21,6 +21,14 @@ export function isSingleStationFocusLayout(
   return layoutMode === 'focus' && visibleStationCount === 1
 }
 
+/**
+ * When a container has only one visible terminal station, the card should fill
+ * the stage the same way as fullscreen/maximize — no grid padding or gaps.
+ */
+export function shouldUseSingleStationFillLayout(visibleStationCount: number): boolean {
+  return visibleStationCount === 1
+}
+
 export function preserveFocusTabOrder(
   stationIds: string[],
   visibleStationIds: Set<string>,

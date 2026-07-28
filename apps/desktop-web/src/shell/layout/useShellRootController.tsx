@@ -1484,6 +1484,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     },
     globalTaskDispatchOverlayProps: {
         ...taskComposerBaseProps,
+        activeStationId,
         open: isTaskQuickDispatchOpen,
         shortcutLabel: formatShortcutBinding(
           shortcutBindings.taskQuickDispatch,

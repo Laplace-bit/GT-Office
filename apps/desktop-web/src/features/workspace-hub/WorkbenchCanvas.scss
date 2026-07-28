@@ -1182,22 +1182,39 @@
   }
 }
 
+// Single visible terminal (and explicit maximize) should fill the stage the same
+// way — no outer grid padding/gap, and the same corner treatment as fullscreen.
 .station-grid.fullscreen-mode,
-.station-grid.focus-mode.single-station-mode {
+.station-grid.focus-mode.single-station-mode,
+.station-grid.auto-layout.single-station-mode,
+.station-grid.custom-layout.single-station-mode {
   padding: 0;
+  gap: 0;
   overflow: hidden;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 
   .focus-main {
     padding: 0;
   }
 
-  .focus-main-stage .station-window {
+  .focus-main-stage .station-window,
+  > .station-card-slot .station-window,
+  > .station-window {
     border-radius: var(--focus-station-corner-radius);
 
     .station-terminal-shell {
       border-bottom-right-radius: var(--focus-station-corner-radius);
       border-bottom-left-radius: var(--focus-station-corner-radius);
     }
+  }
+}
+
+.station-grid.auto-layout.single-station-mode,
+.station-grid.custom-layout.single-station-mode {
+  &[data-layout-mode='fixed'] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 }
 

@@ -18,6 +18,7 @@ import {
 import {
   DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
   normalizeTaskQuickDispatchOpacity,
+  readQuickDispatchPinnedFromStorage,
 } from '@features/task-center'
 import {
   applyUiPreferences,
@@ -78,7 +79,9 @@ export function useShellShortcutController({
   const [taskQuickDispatchOpacity, setTaskQuickDispatchOpacity] = useState(
     DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
   )
-  const [isTaskQuickDispatchOpen, setIsTaskQuickDispatchOpen] = useState(false)
+  const [isTaskQuickDispatchOpen, setIsTaskQuickDispatchOpen] = useState(() =>
+    readQuickDispatchPinnedFromStorage(),
+  )
   const locale = uiPreferences.locale
 
   const macOsNativeMenuInstallSeqRef = useRef(0)

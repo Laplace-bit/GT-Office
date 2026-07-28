@@ -24,18 +24,199 @@
 }
 
 .task-center-pane--overlay {
+  display: flex;
+  flex-direction: column;
   padding: 0;
-  gap: var(--vb-space-md);
+  gap: var(--vb-space-xs);
   background: transparent;
   border: 0;
   box-shadow: none;
+  overflow: visible;
+}
+
+/* Overlay stays a single-surface composer (no nested section cards). */
+.task-center-pane--overlay .task-center-target-picker,
+.task-center-pane--overlay .task-center-editor {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.task-center-pane--overlay .task-center-targets-header,
+.task-center-pane--overlay .task-center-editor-header {
+  display: none;
+}
+
+.task-center-pane--overlay .task-center-send-row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.task-center-pane--overlay .task-center-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vb-space-xs);
+  min-width: 0;
+}
+
+.task-center-pane--overlay .task-center-editor-input-wrap {
+  min-width: 0;
+}
+
+.task-center-pane--overlay .task-center-editor-input-wrap textarea {
+  min-height: #{rem(72)};
+  max-height: min(#{rem(288)}, 42dvh);
+  padding: var(--vb-space-sm) var(--vb-space-md);
+  border-radius: var(--vb-radius-md);
+  line-height: 1.5;
+  overflow-y: hidden;
+  resize: none;
+  field-sizing: content;
+  transition: height 120ms ease;
+}
+
+.task-center-pane--overlay .task-center-editor-footer--overlay {
+  display: grid;
+  grid-template-columns: minmax(#{rem(108)}, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--vb-space-xs);
+  padding-top: 0;
+}
+
+.task-center-pane--overlay .task-center-target-picker--inline {
+  min-width: 0;
+  max-width: none;
+}
+
+.task-center-pane--overlay .task-center-target-tag-trigger.is-compact {
+  min-height: #{rem(34)};
+  width: 100%;
+  padding: 0 var(--vb-space-sm);
+  border-radius: var(--vb-radius-md);
+  gap: var(--vb-space-xs);
+}
+
+.task-center-pane--overlay .task-center-target-compact-label {
+  min-width: 0;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vb-space-2xs);
+  overflow: hidden;
+
+  em {
+    font-style: normal;
+    font-size: #{rem(12)};
+    color: var(--vb-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.task-center-target-active-badge {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: #{rem(10)};
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: #{rem(1)} var(--vb-space-2xs);
+  border-radius: var(--vb-radius-full);
+  color: var(--vb-accent);
+  background: color-mix(in srgb, var(--vb-accent-light) 70%, transparent);
+}
+
+.task-center-pane--overlay .task-center-enter-to-send,
+.task-center-pane--overlay .task-center-follow-active {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vb-space-2xs);
+  color: var(--vb-text-muted);
+  font-size: #{rem(11)};
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+
+  input {
+    width: #{rem(14)};
+    height: #{rem(14)};
+    accent-color: var(--vb-accent);
+    cursor: pointer;
+  }
+
+  &.is-on {
+    color: var(--vb-accent);
+  }
+}
+
+.task-center-pane--overlay .task-center-target-tag-trigger.is-following {
+  border-color: color-mix(in srgb, var(--vb-accent) 34%, var(--vb-border));
+}
+
+.task-center-pane--overlay .task-center-send-shortcut-hint--overlay {
+  display: none;
+}
+
+.task-center-pane--overlay .task-center-inline-send {
+  height: #{rem(34)};
+  padding: 0 var(--vb-space-md);
+  border-radius: var(--vb-radius-md);
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+.task-center-target-list-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vb-space-xs);
+  overflow: hidden;
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.task-center-target-list button.is-current {
+  border-color: color-mix(in srgb, var(--vb-accent) 22%, var(--vb-border));
+}
+
+.task-center-target-check {
+  width: #{rem(18)};
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.task-center-target-popover-portal.is-overlay {
+  max-height: min(#{rem(300)}, 48dvh);
+}
+
+.task-center-target-actions--overlay {
+  display: flex;
+  gap: var(--vb-space-xs);
+}
+
+.task-center-target-popover-hint {
+  margin: 0;
+  padding: var(--vb-space-xs) var(--vb-space-md) var(--vb-space-sm);
+  font-size: #{rem(10.5)};
+  color: var(--vb-text-muted);
+  border-top: var(--vb-border-width) solid var(--vb-border-subtle);
 }
 
 .task-center-pane--compact {
   display: grid;
-  grid-template-columns: minmax(#{rem(168)}, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(#{rem(148)}, auto) minmax(0, 1fr);
   align-items: end;
-  gap: var(--vb-space-sm);
+  gap: var(--vb-space-xs);
   overflow: visible;
 }
 
@@ -57,9 +238,9 @@
 }
 
 .task-center-pane--compact .task-center-target-tag-trigger {
-  min-height: #{rem(44)};
+  min-height: #{rem(36)};
   padding: 0 var(--vb-space-sm);
-  border-radius: var(--vb-radius-lg);
+  border-radius: var(--vb-radius-md);
 }
 
 .task-center-pane--compact .task-center-target-tag-wrap {
@@ -81,7 +262,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
-  gap: var(--vb-space-sm);
+  gap: var(--vb-space-xs);
 }
 
 .task-center-pane--compact .task-center-editor-input-wrap {
@@ -89,11 +270,11 @@
 }
 
 .task-center-pane--compact .task-center-editor-input-wrap textarea {
-  min-height: #{rem(44)};
-  max-height: #{rem(44)};
-  padding: var(--vb-space-sm) var(--vb-space-md);
-  border-radius: var(--vb-radius-lg);
-  line-height: 1.45;
+  min-height: #{rem(36)};
+  max-height: #{rem(36)};
+  padding: var(--vb-space-xs) var(--vb-space-sm);
+  border-radius: var(--vb-radius-md);
+  line-height: 1.4;
 }
 
 .task-center-pane--compact .task-center-editor-footer {
@@ -102,9 +283,9 @@
 }
 
 .task-center-pane--compact .task-center-inline-send {
-  height: #{rem(44)};
-  padding: 0 var(--vb-space-md);
-  border-radius: var(--vb-radius-lg);
+  height: #{rem(36)};
+  padding: 0 var(--vb-space-sm);
+  border-radius: var(--vb-radius-md);
   box-shadow: none;
 }
 

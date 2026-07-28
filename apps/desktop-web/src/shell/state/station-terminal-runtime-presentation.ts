@@ -1,5 +1,7 @@
-import { shouldRenderStationTerminal } from '../../features/terminal/station-terminal-runtime-state.js'
-import { peekParkedStationTerminalHost } from '../../features/terminal/station-terminal-host-pool.js'
+import {
+  disposeParkedStationTerminalHost,
+  peekParkedStationTerminalHost,
+} from '../../features/terminal/station-terminal-host-pool.js'
 import type { WorkspaceTerminalSessionDocument } from './workspace-terminal-session-store.js'
 
 export interface StationTerminalRuntimePresentation {
@@ -35,11 +37,39 @@ function cloneRuntime(
   }
 }
 
+function boundSessionId(
+  runtime: StationTerminalRuntimePresentation | null | undefined,
+): string | null {
+  const sessionId = runtime?.sessionId?.trim() ?? ''
+  return sessionId || null
+}
+
+/**
+ * Presentation-only: should this runtime paint the terminal surface (not session
+ * history)? Bound sessions always do. Without a session, only an in-flight
+ * launch should keep the terminal chrome — closed/killed/exited without a
+ * session belongs on the history/idle surface.
+ */
+export function shouldPresentStationTerminalSurface(
+  runtime: StationTerminalRuntimePresentation | null | undefined,
+): boolean {
+  if (boundSessionId(runtime)) {
+    return true
+  }
+  return runtime?.stateRaw === 'launching'
+}
+
 /**
  * Resolve the station terminal runtime that the first paint after a workspace
- * switch should use. Prefer live React state, then the parked xterm host, then
- * the workspace terminal document cache — never fall through to a blank idle
- * shell when a live session is already known for that station.
+ * switch should use.
+ *
+ * Priority:
+ * 1. Live React runtime when it owns a terminal surface
+ * 2. Cached workspace document when it owns a terminal surface
+ * 3. Parked xterm host only when it matches an expected live/cache session id
+ *
+ * Never revive a parked host after the user intentionally closed the agent
+ * (no session binding in live/cache) — that path must return history/idle.
  */
 export function resolveStationTerminalRuntimeForPresentation(input: {
   stationId: string
@@ -48,33 +78,71 @@ export function resolveStationTerminalRuntimeForPresentation(input: {
   cachedRuntime: StationTerminalRuntimePresentation | null | undefined
 }): StationTerminalRuntimePresentation {
   const live = input.liveRuntime
-  if (shouldRenderStationTerminal(live)) {
+  const cached = input.cachedRuntime
+  const liveSessionId = boundSessionId(live)
+  const cachedSessionId = boundSessionId(cached)
+  const expectedSessionId = liveSessionId ?? cachedSessionId
+
+  if (shouldPresentStationTerminalSurface(live)) {
     return cloneRuntime(live!)
+  }
+
+  if (shouldPresentStationTerminalSurface(cached)) {
+    return cloneRuntime(cached!)
   }
 
   const parked = peekParkedStationTerminalHost(input.workspaceId, input.stationId)
   if (parked?.sessionId) {
-    return {
-      sessionId: parked.sessionId,
-      stateRaw: live?.stateRaw && live.stateRaw !== 'idle' ? live.stateRaw : 'running',
-      unreadCount: live?.unreadCount ?? input.cachedRuntime?.unreadCount ?? 0,
-      shell: live?.shell ?? input.cachedRuntime?.shell ?? null,
-      cwdMode: live?.cwdMode ?? input.cachedRuntime?.cwdMode ?? 'workspace_root',
-      resolvedCwd: live?.resolvedCwd ?? input.cachedRuntime?.resolvedCwd ?? null,
+    if (expectedSessionId && parked.sessionId === expectedSessionId) {
+      return {
+        sessionId: parked.sessionId,
+        stateRaw:
+          (live?.stateRaw && live.stateRaw !== 'idle'
+            ? live.stateRaw
+            : cached?.stateRaw && cached.stateRaw !== 'idle'
+              ? cached.stateRaw
+              : 'running') ?? 'running',
+        unreadCount: live?.unreadCount ?? cached?.unreadCount ?? 0,
+        shell: live?.shell ?? cached?.shell ?? null,
+        cwdMode: live?.cwdMode ?? cached?.cwdMode ?? 'workspace_root',
+        resolvedCwd: live?.resolvedCwd ?? cached?.resolvedCwd ?? null,
+      }
     }
-  }
 
-  const cached = input.cachedRuntime
-  if (shouldRenderStationTerminal(cached)) {
-    return cloneRuntime(cached!)
+    // Stale parked buffer after close, or session rebinding — drop it so the
+    // history surface is restored on the next workspace visit.
+    disposeParkedStationTerminalHost(input.workspaceId, input.stationId)
   }
 
   if (live) {
+    // Normalize closed chrome (killed/exited without session) to idle history.
+    if (!liveSessionId && live.stateRaw !== 'launching' && live.stateRaw !== 'idle') {
+      return {
+        ...cloneRuntime(live),
+        sessionId: null,
+        stateRaw: 'idle',
+        shell: null,
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
+      }
+    }
     return cloneRuntime(live)
   }
+
   if (cached) {
+    if (!cachedSessionId && cached.stateRaw !== 'launching' && cached.stateRaw !== 'idle') {
+      return {
+        ...cloneRuntime(cached),
+        sessionId: null,
+        stateRaw: 'idle',
+        shell: null,
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
+      }
+    }
     return cloneRuntime(cached)
   }
+
   return createIdleRuntime()
 }
 
