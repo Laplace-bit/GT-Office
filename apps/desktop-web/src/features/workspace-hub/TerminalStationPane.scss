@@ -124,58 +124,9 @@
   font-weight: 600;
   white-space: nowrap;
 
-  &.is-live {
-    color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
-    border-color: color-mix(in srgb, var(--vb-success) 26%, transparent);
-    background: color-mix(in srgb, var(--vb-success) 10%, transparent);
-  }
-
-  &.is-busy {
-    color: color-mix(in srgb, var(--vb-accent) 76%, white 24%);
-    border-color: color-mix(in srgb, var(--vb-accent) 24%, transparent);
-    background: color-mix(in srgb, var(--vb-accent) 8%, transparent);
-  }
-
-  &.is-waiting {
-    color: color-mix(in srgb, var(--vb-warning) 74%, white 26%);
-    border-color: color-mix(in srgb, var(--vb-warning) 24%, transparent);
-    background: color-mix(in srgb, var(--vb-warning) 8%, transparent);
-  }
-
-  &.is-blocked {
-    color: color-mix(in srgb, var(--vb-error) 76%, white 24%);
-    border-color: color-mix(in srgb, var(--vb-error) 34%, transparent);
-    background: color-mix(in srgb, var(--vb-error) 9%, transparent);
-  }
-
-  &.is-error {
-    color: color-mix(in srgb, var(--vb-error) 82%, white 18%);
-    border-color: color-mix(in srgb, var(--vb-error) 30%, transparent);
-    background: color-mix(in srgb, var(--vb-error) 10%, transparent);
-  }
-
   &.muted {
     opacity: 0.88;
   }
-}
-
-.terminal-station-pane-chip.is-blocked .terminal-station-pane-chip-dot,
-.terminal-station-pane-chip.is-error .terminal-station-pane-chip-dot {
-  box-shadow: 0 0 0 0.125rem color-mix(in srgb, currentColor 14%, transparent);
-}
-
-.terminal-station-pane-chip-dot {
-  width: 0.3125rem;
-  height: 0.3125rem;
-  flex: 0 0 auto;
-  border-radius: 999rem;
-  background: currentColor;
-}
-
-.terminal-station-pane-chip-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .terminal-station-pane-comet {

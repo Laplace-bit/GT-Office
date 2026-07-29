@@ -2,6 +2,7 @@ import { memo, useMemo, useCallback } from 'react'
 import type { AgentStation } from './station-model'
 import { StationActionDock } from './StationActionDock'
 import { StationActivityComet } from './StationActivityComet'
+import { StationExecutionStatus } from './StationExecutionStatus'
 import { resolveStationCardStatusMeta } from './station-card-header-model'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
@@ -13,6 +14,7 @@ import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import {
   StationXtermTerminal,
+  type AgentExecutionState,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
 import { shouldRenderStationTerminal } from '@features/terminal/station-terminal-runtime-state'
@@ -27,6 +29,7 @@ export interface WorkbenchStationRuntime {
   sessionId: string | null
   unreadCount: number
   stateRaw?: string
+  executionState?: AgentExecutionState
   shell?: string | null
   cwdMode?: 'workspace_root' | 'custom'
   resolvedCwd?: string | null
@@ -108,6 +111,7 @@ function TerminalStationPaneView({
   const statusMeta = resolveStationCardStatusMeta({
     sessionId: runtime?.sessionId ?? null,
     stateRaw: runtime?.stateRaw ?? null,
+    executionState: runtime?.executionState ?? null,
     stationState: station.state,
   })
   const statusLabel = t(locale, statusMeta.labelKey)
@@ -244,15 +248,7 @@ function TerminalStationPaneView({
           <span className="terminal-station-pane-chip" title={station.tool}>
             {station.tool}
           </span>
-          <span
-            className={['terminal-station-pane-chip', `is-${statusMeta.tone}`].join(' ')}
-            title={statusTitle}
-            aria-label={statusTitle}
-            data-status-key={statusMeta.key}
-          >
-            <span className="terminal-station-pane-chip-dot" aria-hidden="true" />
-            <span className="terminal-station-pane-chip-label">{statusLabel}</span>
-          </span>
+          <StationExecutionStatus meta={statusMeta} label={statusLabel} title={statusTitle} compact />
           {visibleChannelBindingSummaries.map((summary) => {
             const routeLabel = t(locale, 'station.channelBindings.botRoute', {
               channel: stationChannelLabel(locale, summary.channel),

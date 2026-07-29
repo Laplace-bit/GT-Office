@@ -1,5 +1,10 @@
+import {
+  normalizeAgentExecutionState,
+  type AgentExecutionState,
+} from '@features/terminal/agent-execution-state'
+
 export type StationCardLaunchState = 'idle' | 'live' | 'alert'
-export type StationCardLaunchIcon = 'play' | 'circle'
+export type StationCardLaunchIcon = 'play' | 'focus'
 export type StationCardStatusTone = 'idle' | 'live' | 'busy' | 'waiting' | 'blocked' | 'error'
 
 export interface StationCardLaunchRuntime {
@@ -11,6 +16,7 @@ export interface StationCardLaunchRuntime {
 export interface StationCardStatusRuntime {
   sessionId: string | null
   stateRaw?: string | null
+  executionState?: AgentExecutionState | null
   stationState?: 'running' | 'idle' | 'blocked' | string | null
 }
 
@@ -20,12 +26,13 @@ export interface StationCardIdentityMetaItem {
 }
 
 export interface StationCardStatusMeta {
-  key: 'idle' | 'launching' | 'live' | 'busy' | 'waiting' | 'blocked' | 'errored' | 'recovering' | 'stopped'
+  key: 'idle' | 'launching' | 'live' | 'ready' | 'busy' | 'waiting' | 'blocked' | 'errored' | 'recovering' | 'stopped'
   tone: StationCardStatusTone
   labelKey:
     | 'station.status.idle'
     | 'station.status.launching'
     | 'station.status.live'
+    | 'station.status.ready'
     | 'station.status.busy'
     | 'station.status.waiting'
     | 'station.status.blocked'
@@ -36,6 +43,7 @@ export interface StationCardStatusMeta {
     | 'station.status.description.idle'
     | 'station.status.description.launching'
     | 'station.status.description.live'
+    | 'station.status.description.ready'
     | 'station.status.description.busy'
     | 'station.status.description.waiting'
     | 'station.status.description.blocked'
@@ -77,7 +85,7 @@ export function resolveStationCardLaunchState(
 
 export function resolveStationCardLaunchIcon(launchState: StationCardLaunchState): StationCardLaunchIcon {
   if (launchState === 'live') {
-    return 'circle'
+    return 'focus'
   }
   return 'play'
 }
@@ -87,6 +95,7 @@ export function resolveStationCardStatusMeta(
 ): StationCardStatusMeta {
   const normalizedRuntimeState = runtime?.stateRaw?.trim().toLowerCase() ?? ''
   const normalizedStationState = runtime?.stationState?.trim().toLowerCase() ?? ''
+  const executionState = normalizeAgentExecutionState(runtime?.executionState)
 
   if (
     normalizedRuntimeState === 'launching' ||
@@ -116,7 +125,15 @@ export function resolveStationCardStatusMeta(
       descriptionKey: 'station.status.description.errored',
     }
   }
-  if (normalizedRuntimeState === 'blocked' || normalizedStationState === 'blocked') {
+  if (normalizedRuntimeState === 'killed' || normalizedRuntimeState === 'exited') {
+    return {
+      key: 'stopped',
+      tone: 'idle',
+      labelKey: 'station.status.stopped',
+      descriptionKey: 'station.status.description.stopped',
+    }
+  }
+  if (normalizedRuntimeState === 'blocked') {
     return {
       key: 'blocked',
       tone: 'blocked',
@@ -140,12 +157,36 @@ export function resolveStationCardStatusMeta(
       descriptionKey: 'station.status.description.busy',
     }
   }
-  if (normalizedRuntimeState === 'killed' || normalizedRuntimeState === 'exited') {
+  if (executionState === 'blocked' || normalizedStationState === 'blocked') {
     return {
-      key: 'stopped',
-      tone: 'idle',
-      labelKey: 'station.status.stopped',
-      descriptionKey: 'station.status.description.stopped',
+      key: 'blocked',
+      tone: 'blocked',
+      labelKey: 'station.status.blocked',
+      descriptionKey: 'station.status.description.blocked',
+    }
+  }
+  if (executionState === 'waiting') {
+    return {
+      key: 'waiting',
+      tone: 'waiting',
+      labelKey: 'station.status.waiting',
+      descriptionKey: 'station.status.description.waiting',
+    }
+  }
+  if (executionState === 'working') {
+    return {
+      key: 'busy',
+      tone: 'busy',
+      labelKey: 'station.status.busy',
+      descriptionKey: 'station.status.description.busy',
+    }
+  }
+  if (executionState === 'idle' && (runtime?.sessionId || normalizedRuntimeState === 'running')) {
+    return {
+      key: 'ready',
+      tone: 'live',
+      labelKey: 'station.status.ready',
+      descriptionKey: 'station.status.description.ready',
     }
   }
   if (runtime?.sessionId || normalizedRuntimeState === 'running' || normalizedStationState === 'running') {

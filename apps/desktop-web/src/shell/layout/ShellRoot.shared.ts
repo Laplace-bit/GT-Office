@@ -1,4 +1,5 @@
 import { normalizeTaskQuickDispatchOpacity } from '@features/task-center'
+import type { AgentExecutionState } from '@features/terminal/agent-execution-state'
 import { buildStationTerminalIdleBanner } from '@features/terminal/station-terminal-idle-banner'
 export { shouldFlushStationInputImmediately } from '@features/terminal/station-terminal-input-flush-policy'
 import {
@@ -23,6 +24,7 @@ export type FileReadMode = 'full'
 export type StationTerminalRuntime = {
   sessionId: string | null
   stateRaw: string
+  executionState?: AgentExecutionState
   unreadCount: number
   shell: string | null
   cwdMode: 'workspace_root' | 'custom'
@@ -535,6 +537,7 @@ export function createInitialStationTerminals(
     acc[station.id] = {
       sessionId: null,
       stateRaw: 'idle',
+      executionState: 'unknown',
       unreadCount: 0,
       shell: null,
       cwdMode: 'workspace_root',

@@ -1,0 +1,93 @@
+@use "../../styles/tokens/responsive" as *;
+
+.station-execution-status {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(4);
+  min-width: rem(64);
+  min-height: rem(20);
+  max-width: rem(108);
+  padding: rem(2) rem(7);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 78%, transparent);
+  border-radius: rem(999);
+  background: color-mix(in srgb, var(--vb-surface) 62%, transparent);
+  color: var(--vb-text-muted);
+  font-size: rem(9.5);
+  font-weight: 650;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.station-execution-status-dot {
+  width: rem(5);
+  height: rem(5);
+  flex: 0 0 auto;
+  border-radius: rem(999);
+  background: currentColor;
+}
+
+.station-execution-status-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.station-execution-status.is-live {
+  border-color: color-mix(in srgb, var(--vb-success) 24%, transparent);
+  background: color-mix(in srgb, var(--vb-success) 9%, transparent);
+  color: color-mix(in srgb, var(--vb-success) 78%, white 22%);
+}
+
+.station-execution-status.is-busy {
+  border-color: color-mix(in srgb, var(--vb-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--vb-accent) 8%, transparent);
+  color: color-mix(in srgb, var(--vb-accent) 76%, white 24%);
+}
+
+.station-execution-status.is-waiting {
+  border-color: color-mix(in srgb, var(--vb-warning) 24%, transparent);
+  background: color-mix(in srgb, var(--vb-warning) 8%, transparent);
+  color: color-mix(in srgb, var(--vb-warning) 74%, white 26%);
+}
+
+.station-execution-status.is-blocked,
+.station-execution-status.is-error {
+  color: color-mix(in srgb, var(--vb-error) 80%, white 20%);
+}
+
+.station-execution-status.is-blocked {
+  border-color: color-mix(in srgb, var(--vb-error) 34%, transparent);
+  background: color-mix(in srgb, var(--vb-error) 9%, transparent);
+}
+
+.station-execution-status.is-error {
+  border-color: color-mix(in srgb, var(--vb-error) 30%, transparent);
+  background: color-mix(in srgb, var(--vb-error) 10%, transparent);
+}
+
+.station-execution-status.is-blocked .station-execution-status-dot,
+.station-execution-status.is-error .station-execution-status-dot {
+  box-shadow: 0 0 0 rem(2) color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.station-execution-status.compact {
+  min-width: 0;
+  min-height: rem(18);
+  padding: 0 rem(6);
+  font-size: rem(9);
+}
+
+.station-execution-status.compact .station-execution-status-dot {
+  width: rem(4);
+  height: rem(4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-execution-status-dot,
+  .station-execution-status-label {
+    transition: none !important;
+    animation: none !important;
+  }
+}

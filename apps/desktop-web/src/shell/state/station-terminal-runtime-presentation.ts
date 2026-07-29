@@ -2,11 +2,13 @@ import {
   disposeParkedStationTerminalHost,
   peekParkedStationTerminalHost,
 } from '../../features/terminal/station-terminal-host-pool.js'
+import type { AgentExecutionState } from '../../features/terminal/agent-execution-state.js'
 import type { WorkspaceTerminalSessionDocument } from './workspace-terminal-session-store.js'
 
 export interface StationTerminalRuntimePresentation {
   sessionId: string | null
   stateRaw: string
+  executionState?: AgentExecutionState
   unreadCount: number
   shell: string | null
   cwdMode: 'workspace_root' | 'custom'
@@ -17,6 +19,7 @@ function createIdleRuntime(): StationTerminalRuntimePresentation {
   return {
     sessionId: null,
     stateRaw: 'idle',
+    executionState: 'unknown',
     unreadCount: 0,
     shell: null,
     cwdMode: 'workspace_root',
@@ -30,6 +33,7 @@ function cloneRuntime(
   return {
     sessionId: runtime.sessionId,
     stateRaw: runtime.stateRaw,
+    executionState: runtime.executionState,
     unreadCount: runtime.unreadCount,
     shell: runtime.shell,
     cwdMode: runtime.cwdMode,
@@ -102,6 +106,7 @@ export function resolveStationTerminalRuntimeForPresentation(input: {
             : cached?.stateRaw && cached.stateRaw !== 'idle'
               ? cached.stateRaw
               : 'running') ?? 'running',
+        executionState: live?.executionState ?? cached?.executionState ?? 'unknown',
         unreadCount: live?.unreadCount ?? cached?.unreadCount ?? 0,
         shell: live?.shell ?? cached?.shell ?? null,
         cwdMode: live?.cwdMode ?? cached?.cwdMode ?? 'workspace_root',

@@ -51,12 +51,14 @@ import {
   captureReportedSessionOwnedRestoreState,
   captureSessionOwnedRestoreState,
   createBufferedStationInputController,
+  detectAgentExecutionState,
   didHydrateChangeSessionBinding,
   didSessionBindingChange,
   formatTerminalDebugBody,
   formatTerminalDebugPreview,
   hydrateSettlesSessionBinding,
   isStationTerminalDebugEnabled,
+  normalizeAgentExecutionState,
   patchTouchesSessionBinding,
   resolveNextPendingLaunchCommand,
   retainSessionOwnedRestoreState,
@@ -68,6 +70,8 @@ import {
   shouldClearPendingFocusIntent,
   shouldClearPendingLaunchCommand,
   shouldFlushPendingLaunchCommand,
+  transitionAgentExecutionState,
+  type AgentExecutionObservation,
   type BufferedStationInputController,
   type SessionOwnedRestoreState,
   type StationTerminalSink,
@@ -211,6 +215,12 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const pendingLaunchCommandRef = useRef<Record<string, string | null>>({})
   const inputControllerRef = useRef<BufferedStationInputController | null>(null)
   const terminalDebugRecordSeqRef = useRef(0)
+  const renderedScreenRevisionRef = useRef<Record<string, { sessionId: string; screenRevision: number }>>({})
+  const agentExecutionObservationRef = useRef<Record<string, AgentExecutionObservation>>({})
+  const agentExecutionSnapshotRef = useRef<
+    Record<string, { snapshot: RenderedScreenSnapshot; toolKind: string }>
+  >({})
+  const agentExecutionConfirmationTimerRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
     stationsRef.current = stations
@@ -335,22 +345,116 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   )
 
   const setStationRuntime = useCallback((stationId: string, patch: Partial<WorkbenchStationRuntime>) => {
+    const previousRuntime = stationRuntimesRef.current[stationId] ?? null
+    const patchTouchesSession = Object.prototype.hasOwnProperty.call(patch, 'sessionId')
+    const sessionBindingChanged =
+      patchTouchesSession && (patch.sessionId ?? null) !== (previousRuntime?.sessionId ?? null)
+    const normalizedPatch =
+      sessionBindingChanged && !Object.prototype.hasOwnProperty.call(patch, 'executionState')
+        ? { ...patch, executionState: 'unknown' as const }
+        : patch
+    if (sessionBindingChanged) {
+      delete agentExecutionObservationRef.current[stationId]
+      delete agentExecutionSnapshotRef.current[stationId]
+      delete renderedScreenRevisionRef.current[stationId]
+      const confirmationTimer = agentExecutionConfirmationTimerRef.current[stationId]
+      if (confirmationTimer !== undefined) {
+        window.clearTimeout(confirmationTimer)
+      }
+      delete agentExecutionConfirmationTimerRef.current[stationId]
+    }
     setStationRuntimes((prev) => {
       const current = prev[stationId] ?? createEmptyWorkbenchStationRuntime()
       const nextRuntime = {
         ...current,
-        ...patch,
+        ...normalizedPatch,
       }
       if (didSessionBindingChange(current.sessionId, nextRuntime.sessionId)) {
         delete stationTerminalRestoreStateRef.current[stationId]
         inputControllerRef.current?.clear(stationId)
       }
-      return {
+      const next = {
         ...prev,
         [stationId]: nextRuntime,
       }
+      stationRuntimesRef.current = next
+      return next
     })
   }, [])
+
+  const reportAgentExecutionState = useMemo(() => {
+    const applyObservation: (
+      stationId: string,
+      snapshot: RenderedScreenSnapshot,
+      toolKind: string,
+      observedAtMs: number,
+    ) => void = (
+      stationId: string,
+      snapshot: RenderedScreenSnapshot,
+      toolKind: string,
+      observedAtMs: number,
+    ) => {
+      const runtime = stationRuntimesRef.current[stationId]
+      const sessionId = runtime?.sessionId ?? null
+      if (!sessionId || snapshot.sessionId !== sessionId) {
+        return
+      }
+      const existingTimer = agentExecutionConfirmationTimerRef.current[stationId]
+      if (existingTimer !== undefined) {
+        window.clearTimeout(existingTimer)
+      }
+      delete agentExecutionConfirmationTimerRef.current[stationId]
+
+      agentExecutionSnapshotRef.current[stationId] = { snapshot, toolKind }
+      const previous = agentExecutionObservationRef.current[stationId] ?? {
+        sessionId,
+        state: normalizeAgentExecutionState(runtime.executionState),
+        pendingIdleSinceMs: null,
+        pendingIdleConfirmations: 0,
+      }
+      const transition = transitionAgentExecutionState(previous, {
+        sessionId,
+        candidate: detectAgentExecutionState(snapshot, toolKind),
+        observedAtMs,
+      })
+      agentExecutionObservationRef.current[stationId] = transition.observation
+      if (transition.changed) {
+        setStationRuntime(stationId, { executionState: transition.observation.state })
+        void postBridgeMessage({
+          kind: 'detached_terminal_runtime_updated',
+          workspaceId: payload.workspaceId,
+          containerId: payload.containerId,
+          stationId,
+          runtimePatch: {
+            sessionId,
+            executionState: transition.observation.state,
+          },
+          projectionSeq: projectionSeqRef.current[stationId] ?? 0,
+        }).catch(() => {})
+      }
+      if (transition.idleConfirmationDelayMs === null) {
+        return
+      }
+      agentExecutionConfirmationTimerRef.current[stationId] = window.setTimeout(() => {
+        delete agentExecutionConfirmationTimerRef.current[stationId]
+        const latest = agentExecutionSnapshotRef.current[stationId]
+        if (!latest || latest.snapshot.sessionId !== sessionId) {
+          return
+        }
+        applyObservation(stationId, latest.snapshot, latest.toolKind, Date.now())
+      }, transition.idleConfirmationDelayMs)
+    }
+    return applyObservation
+  }, [payload.containerId, payload.workspaceId, postBridgeMessage, setStationRuntime])
+
+  useEffect(
+    () => () => {
+      Object.values(agentExecutionConfirmationTimerRef.current).forEach((timer) => {
+        window.clearTimeout(timer)
+      })
+    },
+    [],
+  )
 
   const incrementStationUnread = useCallback((stationId: string, delta: number) => {
     if (delta <= 0) {
@@ -1101,11 +1205,25 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   )
 
   const handleRenderedScreenSnapshot = useCallback((stationId: string, snapshot: RenderedScreenSnapshot) => {
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
     const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
     if (!sessionId || snapshot.sessionId !== sessionId) {
+      return
+    }
+    const previousRevision = renderedScreenRevisionRef.current[stationId]
+    if (
+      previousRevision?.sessionId === sessionId &&
+      previousRevision.screenRevision >= snapshot.screenRevision
+    ) {
+      return
+    }
+    renderedScreenRevisionRef.current[stationId] = {
+      sessionId,
+      screenRevision: snapshot.screenRevision,
+    }
+    const station = stationsRef.current.find((item) => item.id === stationId)
+    const toolKind = normalizeStationToolKind(station?.tool)
+    reportAgentExecutionState(stationId, snapshot, toolKind, snapshot.capturedAtMs)
+    if (!desktopApi.isTauriRuntime()) {
       return
     }
     if (isStationTerminalDebugEnabled(stationId)) {
@@ -1127,8 +1245,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         body: screenBody,
       })
     }
-    const station = stationsRef.current.find((item) => item.id === stationId)
-    const toolKind = normalizeStationToolKind(station?.tool)
     void desktopApi
       .terminalReportRenderedScreen(payload.workspaceId, snapshot, toolKind)
       .then((response) => {
@@ -1147,7 +1263,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       .catch(() => {
         // Snapshot reporting is best-effort and must not affect terminal interaction.
       })
-  }, [payload.workspaceId, pushStationTerminalDebugRecord])
+  }, [payload.workspaceId, pushStationTerminalDebugRecord, reportAgentExecutionState])
 
   const handleSubmitStationActionSheet = useCallback((values: Record<string, string | boolean>) => {
     const pending = pendingStationActionSheet

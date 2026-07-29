@@ -11,6 +11,7 @@ import {
 } from 'react'
 import {
   appendStationTerminalDebugRecord as appendStationTerminalDebugStoreRecord,
+  detectAgentExecutionState,
   buildStationTerminalCommandSubmitChunks,
   createTerminalChunkDecoder,
   decodeTerminalBase64Chunk,
@@ -18,6 +19,7 @@ import {
   formatTerminalDebugPreview,
   isStationTerminalRuntimeLive,
   isStationTerminalDebugEnabled,
+  normalizeAgentExecutionState,
   resetTerminalChunkDecoder,
   setStationTerminalDebugHumanLog,
   buildClosedStationTerminalRuntime,
@@ -63,11 +65,13 @@ import {
   STATION_TERMINAL_OUTPUT_FLUSH_ACTIVE_CHAR_LIMIT,
   takeStationTerminalOutputFlushFrameEntries,
   takeStationTerminalOutputFlushEntries,
+  transitionAgentExecutionState,
   waitForStationTerminalFrameFlush,
   peekParkedStationTerminalHost,
   disposeParkedStationTerminalHost,
   disposeAllParkedStationTerminalHosts,
   type BufferedStationInputController,
+  type AgentExecutionObservation,
   type SessionOwnedRestoreState,
   type TerminalChunkDecoder,
   type TerminalDebugRecordInput,
@@ -417,6 +421,11 @@ export function useShellTerminalController({
   const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
   const renderedScreenReportRevisionRef = useRef<Map<string, number>>(new Map())
+  const agentExecutionObservationRef = useRef<Record<string, AgentExecutionObservation>>({})
+  const agentExecutionSnapshotRef = useRef<
+    Record<string, { snapshot: RenderedScreenSnapshot; toolKind: string }>
+  >({})
+  const agentExecutionConfirmationTimerRef = useRef<Record<string, number>>({})
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
   const terminalDebugRecordSeqRef = useRef(0)
@@ -1088,6 +1097,27 @@ export function useShellTerminalController({
     })
   }, [activeWorkspaceIdRef, presentWorkspaceTerminalDocument, stations])
 
+  // A station with no bound session must never keep a parked xterm host. Closing
+  // an agent (force-close -> idle) unmounts the terminal in the next commit, and
+  // that teardown parks the live buffer with the now-dead session id. If the
+  // parked host survived, the next workspace visit would reclaim it as a
+  // "running" terminal instead of restoring the session-history surface. This
+  // runs after StationXtermTerminal's layout-effect teardown, so the stale host
+  // is already parked by the time we drop it - the early dispose in
+  // confirmForceCloseStationTerminal alone runs before teardown and misses it.
+  useLayoutEffect(() => {
+    const workspaceId = presentedWorkspaceIdRef.current
+    if (!workspaceId) {
+      return
+    }
+    for (const [stationId, runtime] of Object.entries(stationTerminalsRef.current)) {
+      if (runtime?.sessionId) {
+        continue
+      }
+      disposeParkedStationTerminalHost(workspaceId, stationId)
+    }
+  }, [stationTerminals])
+
   const persistActiveWorkspaceTerminalDocument = useCallback(() => {
     captureActiveWorkspaceTerminalDocument(presentedWorkspaceIdRef.current)
   }, [captureActiveWorkspaceTerminalDocument])
@@ -1408,22 +1438,39 @@ export function useShellTerminalController({
 
   const setStationTerminalState = useMemo(
     () => (stationId: string, patch: Partial<StationTerminalRuntime>) => {
-      const projectionPatch = stripDetachedTerminalRuntimeProjectionPatch(patch)
       const previousRuntime = stationTerminalsRef.current[stationId] ?? null
-      const changesRuntimeState = doesStationTerminalRuntimePatchChangeState(previousRuntime, patch)
+      const patchTouchesSession = Object.prototype.hasOwnProperty.call(patch, 'sessionId')
+      const sessionBindingChanged =
+        patchTouchesSession && (patch.sessionId ?? null) !== (previousRuntime?.sessionId ?? null)
+      const normalizedPatch =
+        sessionBindingChanged && !Object.prototype.hasOwnProperty.call(patch, 'executionState')
+          ? { ...patch, executionState: 'unknown' as const }
+          : patch
+      if (sessionBindingChanged) {
+        delete agentExecutionObservationRef.current[stationId]
+        delete agentExecutionSnapshotRef.current[stationId]
+        const confirmationTimer = agentExecutionConfirmationTimerRef.current[stationId]
+        if (confirmationTimer !== undefined && typeof window !== 'undefined') {
+          window.clearTimeout(confirmationTimer)
+        }
+        delete agentExecutionConfirmationTimerRef.current[stationId]
+      }
+      const projectionPatch = stripDetachedTerminalRuntimeProjectionPatch(normalizedPatch)
+      const changesRuntimeState = doesStationTerminalRuntimePatchChangeState(previousRuntime, normalizedPatch)
       const nextRuntimePreview =
         previousRuntime == null
           ? ({
-              sessionId: patch.sessionId ?? null,
-              stateRaw: patch.stateRaw ?? 'idle',
-              unreadCount: patch.unreadCount ?? 0,
-              shell: patch.shell ?? null,
-              cwdMode: patch.cwdMode ?? 'workspace_root',
-              resolvedCwd: patch.resolvedCwd ?? null,
+              sessionId: normalizedPatch.sessionId ?? null,
+              stateRaw: normalizedPatch.stateRaw ?? 'idle',
+              executionState: normalizedPatch.executionState ?? 'unknown',
+              unreadCount: normalizedPatch.unreadCount ?? 0,
+              shell: normalizedPatch.shell ?? null,
+              cwdMode: normalizedPatch.cwdMode ?? 'workspace_root',
+              resolvedCwd: normalizedPatch.resolvedCwd ?? null,
             } satisfies StationTerminalRuntime)
           : {
               ...previousRuntime,
-              ...patch,
+              ...normalizedPatch,
             }
       if (
         previousRuntime == null
@@ -1447,6 +1494,7 @@ export function useShellTerminalController({
           const current = prev[stationId] ?? {
             sessionId: null,
             stateRaw: 'idle',
+            executionState: 'unknown',
             unreadCount: 0,
             shell: null,
             cwdMode: 'workspace_root',
@@ -1454,7 +1502,7 @@ export function useShellTerminalController({
           }
           const nextRuntime = {
             ...current,
-            ...patch,
+            ...normalizedPatch,
           }
           if ((current.sessionId ?? null) !== (nextRuntime.sessionId ?? null)) {
             delete stationTerminalRestoreStateRef.current[stationId]
@@ -1477,6 +1525,72 @@ export function useShellTerminalController({
       publishDetachedRuntimePatch,
       recordStationLifecycleDiagnostic,
     ],
+  )
+
+  const reportAgentExecutionState = useMemo(() => {
+    const applyObservation: (
+      stationId: string,
+      snapshot: RenderedScreenSnapshot,
+      toolKind: string,
+      observedAtMs: number,
+    ) => void = (
+      stationId: string,
+      snapshot: RenderedScreenSnapshot,
+      toolKind: string,
+      observedAtMs: number,
+    ) => {
+      const runtime = stationTerminalsRef.current[stationId]
+      const sessionId = runtime?.sessionId ?? null
+      if (!sessionId || snapshot.sessionId !== sessionId) {
+        return
+      }
+      const existingTimer = agentExecutionConfirmationTimerRef.current[stationId]
+      if (existingTimer !== undefined && typeof window !== 'undefined') {
+        window.clearTimeout(existingTimer)
+      }
+      delete agentExecutionConfirmationTimerRef.current[stationId]
+
+      agentExecutionSnapshotRef.current[stationId] = { snapshot, toolKind }
+      const previous = agentExecutionObservationRef.current[stationId] ?? {
+        sessionId,
+        state: normalizeAgentExecutionState(runtime?.executionState),
+        pendingIdleSinceMs: null,
+        pendingIdleConfirmations: 0,
+      }
+      const transition = transitionAgentExecutionState(previous, {
+        sessionId,
+        candidate: detectAgentExecutionState(snapshot, toolKind),
+        observedAtMs,
+      })
+      agentExecutionObservationRef.current[stationId] = transition.observation
+      if (transition.changed) {
+        setStationTerminalState(stationId, { executionState: transition.observation.state })
+      }
+      if (transition.idleConfirmationDelayMs === null || typeof window === 'undefined') {
+        return
+      }
+      agentExecutionConfirmationTimerRef.current[stationId] = window.setTimeout(() => {
+        delete agentExecutionConfirmationTimerRef.current[stationId]
+        const latest = agentExecutionSnapshotRef.current[stationId]
+        if (!latest || latest.snapshot.sessionId !== sessionId) {
+          return
+        }
+        applyObservation(stationId, latest.snapshot, latest.toolKind, Date.now())
+      }, transition.idleConfirmationDelayMs)
+    }
+    return applyObservation
+  }, [setStationTerminalState])
+
+  useEffect(
+    () => () => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      Object.values(agentExecutionConfirmationTimerRef.current).forEach((timer) => {
+        window.clearTimeout(timer)
+      })
+    },
+    [],
   )
 
   // ── Unread tracking ───────────────────────────────────────────────────
@@ -3705,6 +3819,21 @@ export function useShellTerminalController({
           }
           return
         }
+        case 'detached_terminal_runtime_updated': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          const executionState = message.runtimePatch.executionState
+          const sessionId = message.runtimePatch.sessionId ?? null
+          if (!executionState || !matchesDetachedBridgeSession(message.stationId, sessionId)) {
+            return
+          }
+          setStationTerminalState(message.stationId, {
+            executionState: normalizeAgentExecutionState(executionState),
+          })
+          return
+        }
         default:
           return
       }
@@ -3719,15 +3848,13 @@ export function useShellTerminalController({
       publishDetachedRuntimePatch,
       resizeStationTerminal,
       resolveDetachedBridgeContainer,
+      setStationTerminalState,
     ],
   )
 
   // ── Rendered screen snapshot ───────────────────────────────────────────
   const reportRenderedScreenSnapshot = useMemo(
     () => (stationId: string, snapshot: RenderedScreenSnapshot) => {
-      if (!desktopApi.isTauriRuntime() || performanceDebugState.enabled) {
-        return
-      }
       const debugEnabled = isStationTerminalDebugEnabled(stationId)
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       const workspaceId = activeWorkspaceIdRef.current
@@ -3743,6 +3870,12 @@ export function useShellTerminalController({
           screenRevision: snapshot.screenRevision,
         })
       ) {
+        return
+      }
+      const station = stationsRef.current.find((item) => item.id === stationId)
+      const toolKind = normalizeStationToolKind(station?.tool)
+      reportAgentExecutionState(stationId, snapshot, toolKind, snapshot.capturedAtMs)
+      if (!desktopApi.isTauriRuntime() || performanceDebugState.enabled) {
         return
       }
       if (debugEnabled) {
@@ -3764,8 +3897,6 @@ export function useShellTerminalController({
           body: screenBody,
         })
       }
-      const station = stationsRef.current.find((item) => item.id === stationId)
-      const toolKind = normalizeStationToolKind(station?.tool)
       void desktopApi
         .terminalReportRenderedScreen(workspaceId, snapshot, toolKind)
         .then((response) => {
@@ -3785,7 +3916,7 @@ export function useShellTerminalController({
           // Snapshot reporting is best-effort and must not affect terminal interaction.
         })
     },
-    [performanceDebugState.enabled, pushStationTerminalDebugRecord],
+    [performanceDebugState.enabled, pushStationTerminalDebugRecord, reportAgentExecutionState],
   )
 
   // ── Process snapshot helpers ────────────────────────────────────────────

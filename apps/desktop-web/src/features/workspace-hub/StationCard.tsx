@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { Circle, GripHorizontal, Play } from 'lucide-react'
+import { Crosshair, GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation } from './station-model'
 import {
   buildStationCardIdentityMeta,
@@ -10,6 +10,7 @@ import {
   resolveStationCardStatusMeta,
 } from './station-card-header-model'
 import { StationActionDock } from './StationActionDock'
+import { StationExecutionStatus } from './StationExecutionStatus'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
 import { resolveStationTaskAckEmoji } from './station-task-ack-emoji'
@@ -19,6 +20,7 @@ import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import {
   StationXtermTerminal,
+  type AgentExecutionState,
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
@@ -87,6 +89,7 @@ interface StationTerminalRuntime {
   sessionId: string | null
   unreadCount: number
   stateRaw?: string | null
+  executionState?: AgentExecutionState | null
 }
 
 interface StationCardProps {
@@ -342,6 +345,7 @@ function StationCardView({
   const statusMeta = resolveStationCardStatusMeta({
     sessionId: runtime?.sessionId ?? null,
     stateRaw: runtime?.stateRaw ?? null,
+    executionState: runtime?.executionState ?? null,
     stationState: station.state,
   })
   const statusLabel = t(locale, statusMeta.labelKey)
@@ -511,15 +515,7 @@ function StationCardView({
                 </span>
               ))}
             </div>
-            <span
-              className={['station-runtime-status', `is-${statusMeta.tone}`].join(' ')}
-              title={statusTitle}
-              aria-label={statusTitle}
-              data-status-key={statusMeta.key}
-            >
-              <span className="station-runtime-status-dot" aria-hidden="true" />
-              <span className="station-runtime-status-label">{statusLabel}</span>
-            </span>
+            <StationExecutionStatus meta={statusMeta} label={statusLabel} title={statusTitle} />
           </div>
         </div>
         <div className="station-window-header-actions">
@@ -528,7 +524,6 @@ function StationCardView({
               className={['station-primary-launch-btn', launchState].join(' ')}
               tooltip={primaryLaunchButtonLabel}
               ariaLabel={primaryLaunchButtonLabel}
-              ariaPressed={launchState === 'live'}
               onPointerDown={(event) => {
                 event.preventDefault()
               }}
@@ -537,9 +532,9 @@ function StationCardView({
                 handlePrimaryLaunch()
               }}
             >
-              {launchIcon === 'circle' ? (
-                <Circle
-                  className="vb-icon vb-icon-station-button station-live-icon"
+              {launchIcon === 'focus' ? (
+                <Crosshair
+                  className="vb-icon vb-icon-station-button station-focus-icon"
                   aria-hidden="true"
                   strokeWidth={1.9}
                 />
@@ -769,6 +764,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onStationDragPointerStart === next.onStationDragPointerStart &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.stateRaw ?? null) === (next.runtime?.stateRaw ?? null) &&
+    (prev.runtime?.executionState ?? 'unknown') === (next.runtime?.executionState ?? 'unknown') &&
     !didStationTerminalRenderabilityChange(prev.runtime, next.runtime) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&

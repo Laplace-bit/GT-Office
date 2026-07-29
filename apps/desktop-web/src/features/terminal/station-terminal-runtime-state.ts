@@ -1,6 +1,9 @@
+import type { AgentExecutionState } from './agent-execution-state'
+
 type StationTerminalRuntimeShape = {
   sessionId: string | null
   stateRaw: string
+  executionState?: AgentExecutionState
   unreadCount: number
   shell: string | null
   cwdMode: 'workspace_root' | 'custom'
@@ -144,6 +147,12 @@ export function doesStationTerminalRuntimePatchChangeState(
     return true
   }
   if (hasOwnRuntimePatchKey(patch, 'stateRaw') && (patch.stateRaw ?? 'idle') !== runtime.stateRaw) {
+    return true
+  }
+  if (
+    hasOwnRuntimePatchKey(patch, 'executionState') &&
+    (patch.executionState ?? 'unknown') !== (runtime.executionState ?? 'unknown')
+  ) {
     return true
   }
   if (hasOwnRuntimePatchKey(patch, 'unreadCount') && (patch.unreadCount ?? 0) !== runtime.unreadCount) {

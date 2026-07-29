@@ -565,10 +565,11 @@ export const messages = {
   'station.role.evaluator': { 'zh-CN': '评估', 'en-US': 'Evaluator' },
   'station.status.idle': { 'zh-CN': '空闲', 'en-US': 'Idle' },
   'station.status.launching': { 'zh-CN': '启动中', 'en-US': 'Launching' },
-  'station.status.live': { 'zh-CN': '运行中', 'en-US': 'Live' },
-  'station.status.busy': { 'zh-CN': '忙碌', 'en-US': 'Busy' },
-  'station.status.waiting': { 'zh-CN': '等待', 'en-US': 'Waiting' },
-  'station.status.blocked': { 'zh-CN': '阻塞', 'en-US': 'Blocked' },
+  'station.status.live': { 'zh-CN': '已连接', 'en-US': 'Connected' },
+  'station.status.ready': { 'zh-CN': '准备就绪', 'en-US': 'Ready' },
+  'station.status.busy': { 'zh-CN': '执行中', 'en-US': 'Working' },
+  'station.status.waiting': { 'zh-CN': '等待输入', 'en-US': 'Awaiting input' },
+  'station.status.blocked': { 'zh-CN': '需要处理', 'en-US': 'Needs attention' },
   'station.status.errored': { 'zh-CN': '异常', 'en-US': 'Errored' },
   'station.status.recovering': { 'zh-CN': '恢复中', 'en-US': 'Recovering' },
   'station.status.stopped': { 'zh-CN': '已停止', 'en-US': 'Stopped' },
@@ -583,6 +584,10 @@ export const messages = {
   'station.status.description.live': {
     'zh-CN': '终端会话已连接',
     'en-US': 'Terminal session is connected',
+  },
+  'station.status.description.ready': {
+    'zh-CN': 'Agent 已完成当前响应，等待下一项任务',
+    'en-US': 'Agent completed its current response and is ready for the next task',
   },
   'station.status.description.busy': {
     'zh-CN': 'Agent 正在处理任务',

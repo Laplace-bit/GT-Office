@@ -785,6 +785,7 @@ export interface DetachedTerminalSurfaceRuntime {
   sessionId: string | null
   unreadCount: number
   stateRaw?: string
+  executionState?: import('@features/terminal/agent-execution-state').AgentExecutionState
   shell?: string | null
   cwdMode?: 'workspace_root' | 'custom'
   resolvedCwd?: string | null

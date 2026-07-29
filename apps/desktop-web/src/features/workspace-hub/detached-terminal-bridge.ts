@@ -1,3 +1,4 @@
+import { normalizeAgentExecutionState } from '@features/terminal/agent-execution-state'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 
 export const DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL = 'main'
@@ -8,7 +9,7 @@ export const DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS = 1024 * 1024
 export const DETACHED_TERMINAL_OUTPUT_APPEND_MESSAGE_CHAR_LIMIT = 24 * 1024
 
 export type DetachedTerminalRuntimeProjectionPatch = Partial<
-  Pick<WorkbenchStationRuntime, 'sessionId' | 'stateRaw' | 'shell' | 'cwdMode' | 'resolvedCwd'>
+  Pick<WorkbenchStationRuntime, 'sessionId' | 'stateRaw' | 'executionState' | 'shell' | 'cwdMode' | 'resolvedCwd'>
 >
 
 export function createEmptyWorkbenchStationRuntime(): WorkbenchStationRuntime {
@@ -16,6 +17,7 @@ export function createEmptyWorkbenchStationRuntime(): WorkbenchStationRuntime {
     sessionId: null,
     unreadCount: 0,
     stateRaw: 'idle',
+    executionState: 'unknown',
     shell: null,
     cwdMode: 'workspace_root',
     resolvedCwd: null,
@@ -191,6 +193,7 @@ export function normalizeDetachedTerminalRuntime(
         ? runtime.unreadCount
         : 0,
     stateRaw: runtime?.stateRaw ?? 'idle',
+    executionState: normalizeAgentExecutionState(runtime?.executionState),
     shell: runtime?.shell ?? null,
     cwdMode: runtime?.cwdMode === 'custom' ? 'custom' : 'workspace_root',
     resolvedCwd: runtime?.resolvedCwd ?? null,
@@ -206,6 +209,9 @@ export function stripDetachedTerminalRuntimeProjectionPatch(
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'stateRaw')) {
     nextPatch.stateRaw = patch.stateRaw
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'executionState')) {
+    nextPatch.executionState = normalizeAgentExecutionState(patch.executionState)
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'shell')) {
     nextPatch.shell = patch.shell ?? null

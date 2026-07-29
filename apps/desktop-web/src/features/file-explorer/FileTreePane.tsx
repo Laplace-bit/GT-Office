@@ -1156,7 +1156,7 @@ export function FileTreePane({
     setPromptModal({
       open: true,
       title: t(locale, 'fileTree.createFile'),
-      defaultValue: 'new-file.md',
+      defaultValue: '',
       placeholder: t(locale, 'fileTree.promptCreateUnder', { base: basePath }),
       onSubmit: async (fileName) => {
         const trimmedName = fileName.trim()

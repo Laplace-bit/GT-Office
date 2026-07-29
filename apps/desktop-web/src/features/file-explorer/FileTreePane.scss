@@ -11,6 +11,7 @@
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: var(--vb-space-sm);
+  padding: 0;
   background: transparent;
   overflow: hidden;
   user-select: none;
@@ -23,6 +24,7 @@
   justify-content: flex-end;
   gap: var(--vb-space-sm);
   min-height: #{rem(32)};
+  padding: var(--vb-space-2xs) var(--vb-space-xs) 0;
 }
 
 .file-tree-header-actions {
@@ -85,9 +87,6 @@
   height: 100%;
   overflow: hidden;
   box-sizing: border-box;
-  padding-inline: var(--vb-space-2xs);
-  border-radius: var(--vb-radius-lg);
-  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, transparent);
   background: transparent;
   position: relative;
   outline: none;
@@ -547,11 +546,6 @@
 // opacity for file names and git markers to remain legible without stacking a
 // second WebView blur over the native material.
 :root[data-vb-native-vibrancy='true'] {
-  .file-tree-viewport {
-    border-color: color-mix(in srgb, var(--vb-border) 86%, transparent);
-    background: color-mix(in srgb, var(--vb-surface) 74%, transparent);
-  }
-
   .tree-row:hover {
     background: color-mix(in srgb, var(--vb-card-hover-bg) 92%, var(--vb-surface));
   }
@@ -584,10 +578,6 @@
   .tree-search-btn,
   .tree-refresh-btn {
     background: var(--vb-chip);
-    border-color: var(--vb-border);
-  }
-
-  .file-tree-viewport {
     border-color: var(--vb-border);
   }
 
