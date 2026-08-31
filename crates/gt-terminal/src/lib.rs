@@ -1422,6 +1422,26 @@ where
             command.env(key, value);
         }
 
+        // A caller/agent-supplied PATH may omit the standard system dirs (for
+        // example a stripped GUI/sandbox PATH), which would hide `ls`/`clear`/
+        // `sh`/`cc`/`uname`/`sw_vers` from the interactive shell even though the
+        // bootstrap seed set them. Re-ensure the system dirs are present before
+        // spawn; the set is small (E2BIG-safe) and non-destructive to any
+        // ordering the caller intended.
+        if !cfg!(target_os = "windows") {
+            if let Some(supplied_path) = request.env.get("PATH") {
+                let supplied = supplied_path.trim();
+                if !supplied.split(':').any(|part| part == "/usr/bin") {
+                    let merged = if supplied.is_empty() {
+                        minimal_bootstrap_path().to_string()
+                    } else {
+                        format!("{}:{}", minimal_bootstrap_path(), supplied)
+                    };
+                    command.env("PATH", &merged);
+                }
+            }
+        }
+
         // Keep renderer color capability stable even when callers provide a
         // minimal or inherited app env. `NO_COLOR` disables many CLIs purely by
         // presence, so remove it instead of setting it to an empty value.

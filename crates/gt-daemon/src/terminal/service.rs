@@ -34,6 +34,28 @@ struct TerminalControl {
     child: Box<dyn portable_pty::Child + Send>,
 }
 
+/// Prepend the standard POSIX directories to `path` when `/usr/bin` is missing,
+/// so a shell spawned by a GUI-stripped environment can still resolve core
+/// utilities (`sh`, `ls`, `cc`, `uname`, `sw_vers`, ...). Idempotent and a
+/// no-op when the dirs are already present.
+#[cfg(not(target_os = "windows"))]
+fn ensure_system_dirs(path: &str) -> String {
+    const SYSTEM_DIRS: &str = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+    if path.split(':').any(|part| part == "/usr/bin") {
+        return path.to_string();
+    }
+    if path.is_empty() {
+        SYSTEM_DIRS.to_string()
+    } else {
+        format!("{SYSTEM_DIRS}:{path}")
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_system_dirs(path: &str) -> String {
+    path.to_string()
+}
+
 struct SessionHandle {
     owner_client_id: String,
     control: Arc<Mutex<TerminalControl>>,
@@ -70,9 +92,20 @@ impl TerminalService {
 
         let mut command = CommandBuilder::new(shell);
         command.cwd(resolved_cwd.clone());
+        // Track an effective PATH across (a) the daemon process's own PATH and
+        // (b) any PATH the caller supplies via `env`, so we can guarantee below
+        // that the spawned shell can always find core utilities (`sh`, `ls`,
+        // `cc`, `uname`, ...). The daemon is often launched from the macOS GUI,
+        // which hands the process a stripped PATH; inheriting it unchanged would
+        // leave the terminal shell unable to run basic commands.
+        let mut effective_path = std::env::var("PATH").unwrap_or_default();
         for (key, value) in req.env.unwrap_or_default() {
+            if key == "PATH" {
+                effective_path = value.clone();
+            }
             command.env(key, value);
         }
+        command.env("PATH", ensure_system_dirs(&effective_path));
 
         let child = pair
             .slave
