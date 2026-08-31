@@ -30,9 +30,8 @@
   /* Glowing inner border effect */
   border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 60%, transparent);
   border-radius: var(--vb-radius-xl);
-  box-shadow: 
-    0 #{rem(30)} #{rem(80)} rgba(0, 0, 0, 0.15),
-    0 #{rem(10)} #{rem(30)} rgba(0, 0, 0, 0.1),
+  box-shadow:
+    var(--vb-shadow-xl),
     inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.4); /* High light top edge */
   display: flex;
   flex-direction: row !important;
@@ -346,7 +345,7 @@
   .app-settings-modal {
     background: var(--vb-surface-muted);
     border-color: var(--vb-border-strong);
-    box-shadow: var(--vb-shadow-lg), var(--vb-shadow-inset);
+    box-shadow: var(--vb-shadow-xl), var(--vb-shadow-inset);
   }
 
   .settings-sidebar {

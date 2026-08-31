@@ -8,28 +8,29 @@
    ======================================== */
 
 :root {
-  /* === Apple Color Palette - Light Mode === */
-  --vb-bg: #f5f5f7;
-  --vb-surface: rgba(255, 255, 255, 0.72);
-  --vb-surface-muted: rgba(250, 250, 252, 0.85);
-  --vb-chip: rgba(240, 240, 245, 0.90);
+  /* === Apple Color Palette - Light Mode (soft warm paper — calm, never stark) === */
+  --vb-bg: #edebe4;
+  --vb-surface: rgba(248, 246, 241, 0.86);
+  --vb-surface-muted: rgba(240, 238, 232, 0.9);
+  --vb-chip: rgba(232, 230, 224, 0.92);
   
-  /* Glass Effects */
+  /* Glass Effects — light theme keeps panes light and coordinated even when the
+   desktop material behind the vibrancy layer runs dark. */
   --vb-glass-blur: 1.7143rem;
-  --vb-glass-light: rgba(255, 255, 255, 0.55);
-  --vb-glass-lighter: rgba(255, 255, 255, 0.42);
-  --vb-glass-lighter-hover: rgba(255, 255, 255, 0.68);
+  --vb-glass-light: rgba(245, 243, 237, 0.8);
+  --vb-glass-lighter: rgba(240, 238, 232, 0.64);
+  --vb-glass-lighter-hover: rgba(247, 245, 240, 0.84);
   
   /* Input & Card Backgrounds */
-  --vb-input-bg: rgba(255, 255, 255, 0.92);
+  --vb-input-bg: rgba(249, 248, 244, 0.94);
   --vb-input-border: rgba(0, 0, 0, 0.08);
   --vb-input-focus-border: #007aff;
-  --vb-card-bg: rgba(255, 255, 255, 0.65);
-  --vb-card-hover-bg: rgba(255, 255, 255, 0.80);
+  --vb-card-bg: rgba(247, 245, 240, 0.68);
+  --vb-card-hover-bg: rgba(248, 246, 241, 0.85);
   
-  /* Borders - Apple-style subtle */
-  --vb-border: rgba(0, 0, 0, 0.06);
-  --vb-border-strong: rgba(0, 0, 0, 0.12);
+  /* Borders - Apple-style subtle (warm hairline) */
+  --vb-border: rgba(24, 24, 27, 0.08);
+  --vb-border-strong: rgba(24, 24, 27, 0.14);
   
   /* Shadows - Multi-layered Apple depth */
   --vb-shadow: 
@@ -46,10 +47,10 @@
     0 1.4286rem 3.4286rem rgba(0, 0, 0, 0.12);
   --vb-shadow-inset: inset 0 0.0357rem 0 rgba(255, 255, 255, 0.8);
   
-  /* Typography */
-  --vb-text: #1d1d1f;
-  --vb-text-muted: #86868b;
-  --vb-text-subtle: #aeaeb2;
+  /* Typography - warm charcoal scale */
+  --vb-text: #1d1c1a;
+  --vb-text-muted: #78766f;
+  --vb-text-subtle: #9a978f;
   
   /* Accent Colors - Apple Blue */
   --vb-accent: #007aff;

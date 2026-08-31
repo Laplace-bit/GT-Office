@@ -6,19 +6,74 @@
   --vb-border-subtle: color-mix(in srgb, var(--vb-border) 72%, transparent);
   --vb-panel-bg: color-mix(in srgb, var(--vb-surface) 84%, transparent);
   --vb-shadow-md: var(--vb-shadow);
-  --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 92%, #ffffff 8%);
+  --vb-shadow-xl:
+    var(--vb-shadow-lg),
+    0 0.5714rem 1.4286rem rgba(15, 23, 42, 0.12),
+    0 2rem 4.2857rem rgba(15, 23, 42, 0.2);
+  --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 88%, var(--vb-bg) 12%);
   --vb-text-primary: var(--vb-text);
   --vb-text-tertiary: var(--vb-text-muted);
+
+  /* ── Broken-token aliases ──────────────────────────────────────────────
+     Legacy components still reference these names. They were never defined,
+     so every use silently degraded to a CSS initial value (transparent
+     backgrounds, text-colored borders). Map them onto the real tokens so
+     both Graphite and Sakura themes flow through untouched. */
+  --vb-danger: var(--vb-error);
+  --vb-border-light: var(--vb-border-subtle);
+  --vb-pane-bg: var(--vb-panel-bg);
+  --vb-border-color: var(--vb-border);
+  --vb-text-secondary: var(--vb-text-muted);
+  --vb-accent-color: var(--vb-accent);
+  --vb-accent-color-alpha-10: color-mix(in srgb, var(--vb-accent) 10%, transparent);
+  /* file-preview's no-prefix spelling */
+  --accent-color: var(--vb-accent);
+  --accent-color-alpha-10: color-mix(in srgb, var(--vb-accent) 10%, transparent);
+  --color-error: var(--vb-error);
+  --color-success: var(--vb-success);
+  --color-warning: var(--vb-warning);
+
+  /* ── Surface / interaction aliases consumed by provider & designer UIs ── */
+  --vb-surface-secondary: var(--vb-surface-muted);
+  --vb-accent-muted: color-mix(in srgb, var(--vb-accent) 40%, var(--vb-text-muted));
+  --vb-panel: var(--vb-panel-bg);
+  --vb-control-bg: var(--vb-input-bg);
+  --vb-surface-hover: var(--vb-card-hover-bg);
+  --vb-glass-strong: color-mix(in srgb, var(--vb-glass-light) 94%, transparent);
+  --vb-text-inverse: #ffffff;
+  --vb-brand-primary: var(--vb-accent);
+  --vb-bg-muted: var(--vb-chip);
+  --vb-bg-active: color-mix(in srgb, var(--vb-text) 8%, transparent);
+  --vb-accent-rgb: 0, 122, 255;
+  --vb-color-white: #ffffff;
+
+  /* ── File-preview legacy variables ───────────────────────────────────── */
+  --bg-primary: var(--vb-surface);
+  --bg-secondary: var(--vb-surface-muted);
+  --text-primary: var(--vb-text);
+  --text-secondary: var(--vb-text-muted);
+  --border-color: var(--vb-border);
+  --bg-hover: var(--vb-card-hover-bg);
 }
 
 :root[data-theme='graphite-dark'] {
   --vb-panel-bg: color-mix(in srgb, var(--vb-surface) 86%, #000000 14%);
   --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 88%, #000000 12%);
   --vb-text-tertiary: var(--vb-text-subtle);
+  --vb-shadow-xl:
+    var(--vb-shadow-lg),
+    0 0.8571rem 2rem rgba(0, 0, 0, 0.42),
+    0 2.2857rem 5.7143rem rgba(0, 0, 0, 0.62);
+  --vb-accent-rgb: 10, 132, 255;
 }
 
 :root[data-theme='sakura-night'] {
   --vb-panel-bg: color-mix(in srgb, var(--vb-surface) 86%, #120810 14%);
   --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 88%, #120810 12%);
   --vb-text-tertiary: var(--vb-text-subtle);
+  --vb-shadow-xl:
+    var(--vb-shadow-lg),
+    0 0.8571rem 2rem rgba(18, 8, 16, 0.5),
+    0 2.2857rem 5.7143rem rgba(18, 8, 16, 0.7);
+  --vb-accent-rgb: 244, 114, 182;
 }

@@ -8,13 +8,16 @@
   --vb-space-md: #{rem(12)};
   --vb-space-lg: #{rem(16)};
   --vb-space-xl: #{rem(24)};
+  --vb-space-3xl: #{rem(48)};
 
   // Radius
+  --vb-radius-2xs: #{rem(3)};
   --vb-radius-xs: #{rem(6)};
   --vb-radius-sm: #{rem(8)};
   --vb-radius-md: #{rem(12)};
   --vb-radius-lg: #{rem(16)};
   --vb-radius-xl: #{rem(20)};
+  --vb-radius-pill: 999rem;
   --vb-radius-full: 999rem;
 
   // Icons

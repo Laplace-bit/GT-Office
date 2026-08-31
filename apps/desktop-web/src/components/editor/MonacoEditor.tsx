@@ -47,7 +47,8 @@ function configureTypeScriptDefaults(monaco: Monaco) {
 }
 
 function defineThemes(monaco: Monaco) {
-  const baseTokens = [
+  // Dark-theme token palette (VS Dark+ family — readable on dark surfaces).
+  const darkTokens = [
     { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
     { token: 'keyword', foreground: 'C586C0' },
     { token: 'string', foreground: 'CE9178' },
@@ -62,40 +63,56 @@ function defineThemes(monaco: Monaco) {
     { token: 'attribute.value', foreground: 'CE9178' },
   ]
 
+  // Light-theme token palette: warm ink on warm paper, hue families shared
+  // with the file tree's git status colors so surfaces read as one system.
+  const lightTokens = [
+    { token: 'comment', foreground: '8A8578', fontStyle: 'italic' },
+    { token: 'keyword', foreground: '7C3AED' },
+    { token: 'string', foreground: 'B45309' },
+    { token: 'number', foreground: '0F766E' },
+    { token: 'type', foreground: '0369A1' },
+    { token: 'function', foreground: '1D4ED8' },
+    { token: 'variable', foreground: '2E2C28' },
+    { token: 'operator', foreground: '78766F' },
+    { token: 'delimiter', foreground: '78766F' },
+    { token: 'tag', foreground: '15803D' },
+    { token: 'attribute.name', foreground: '0369A1' },
+    { token: 'attribute.value', foreground: 'B45309' },
+  ]
+
   monaco.editor.defineTheme('gt-office-light', {
     base: 'vs',
     inherit: true,
-    rules: baseTokens.map((t) => ({
-      ...t,
-      foreground: t.foreground,
-    })),
+    rules: lightTokens,
     colors: {
-      'editor.background': '#FFFFFF',
-      'editor.foreground': '#1F2937',
-      'editor.lineHighlightBackground': '#F3F4F6',
-      'editorLineNumber.foreground': '#9CA3AF',
-      'editorLineNumber.activeForeground': '#3B82F6',
-      'editor.selectionBackground': '#ADD6FF',
-      'editorCursor.foreground': '#3B82F6',
-      'editor.inactiveSelectionBackground': '#E5E7EB',
-      'editorGutter.background': '#FAFAFA',
+      // Transparent: the editor becomes part of its pane surface instead of a
+      // stark white slab floating over the vibrancy material.
+      'editor.background': '#00000000',
+      'editor.foreground': '#2E2C28',
+      'editor.lineHighlightBackground': '#1D1C1A0A',
+      'editorLineNumber.foreground': '#A8A49B',
+      'editorLineNumber.activeForeground': '#007AFF',
+      'editor.selectionBackground': '#B4D8FE',
+      'editorCursor.foreground': '#007AFF',
+      'editor.inactiveSelectionBackground': '#E9E6DF',
+      'editorGutter.background': '#00000000',
     },
   })
 
   monaco.editor.defineTheme('gt-office-dark', {
     base: 'vs-dark',
     inherit: true,
-    rules: baseTokens,
+    rules: darkTokens,
     colors: {
-      'editor.background': '#1E1E1E',
+      'editor.background': '#00000000',
       'editor.foreground': '#D4D4D4',
-      'editor.lineHighlightBackground': '#2A2D2E',
-      'editorLineNumber.foreground': '#858585',
-      'editorLineNumber.activeForeground': '#C6C6C6',
+      'editor.lineHighlightBackground': '#FFFFFF0A',
+      'editorLineNumber.foreground': '#6E6E73',
+      'editorLineNumber.activeForeground': '#0A84FF',
       'editor.selectionBackground': '#264F78',
-      'editorCursor.foreground': '#AEAFAD',
+      'editorCursor.foreground': '#0A84FF',
       'editor.inactiveSelectionBackground': '#3A3D41',
-      'editorGutter.background': '#1E1E1E',
+      'editorGutter.background': '#00000000',
     },
   })
 
@@ -117,15 +134,15 @@ function defineThemes(monaco: Monaco) {
       { token: 'attribute.value', foreground: '6ee7b7' },
     ],
     colors: {
-      'editor.background': '#1a1018',
+      'editor.background': '#00000000',
       'editor.foreground': '#f5e6ef',
-      'editor.lineHighlightBackground': '#221420',
+      'editor.lineHighlightBackground': '#F472B60D',
       'editorLineNumber.foreground': '#6b4f66',
       'editorLineNumber.activeForeground': '#f472b6',
       'editor.selectionBackground': '#3d1f36',
       'editorCursor.foreground': '#f472b6',
       'editor.inactiveSelectionBackground': '#2a1628',
-      'editorGutter.background': '#1a1018',
+      'editorGutter.background': '#00000000',
     },
   })
 }

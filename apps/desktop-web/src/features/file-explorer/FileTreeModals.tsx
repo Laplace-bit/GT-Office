@@ -59,8 +59,8 @@ export const FileTreePromptModal = memo(({
           />
         </div>
         <footer className="file-tree-modal-footer">
-          <button className="v-btn v-btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="v-btn v-btn-primary" onClick={() => onSubmit(value)} disabled={!value.trim()}>Confirm</button>
+          <button className="gto-btn gto-btn--secondary" onClick={onClose}>Cancel</button>
+          <button className="gto-btn gto-btn--primary" onClick={() => onSubmit(value)} disabled={!value.trim()}>Confirm</button>
         </footer>
       </div>
     </div>
@@ -94,8 +94,8 @@ export const FileTreeConfirmModal = memo(({
           <p>{message}</p>
         </div>
         <footer className="file-tree-modal-footer">
-          <button className="v-btn v-btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="v-btn v-btn-danger" onClick={onConfirm}>Delete</button>
+          <button className="gto-btn gto-btn--secondary" onClick={onClose}>Cancel</button>
+          <button className="gto-btn gto-btn--danger" onClick={onConfirm}>Delete</button>
         </footer>
       </div>
     </div>

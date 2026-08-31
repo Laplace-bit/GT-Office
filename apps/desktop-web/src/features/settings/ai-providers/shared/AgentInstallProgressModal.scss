@@ -18,7 +18,7 @@
   background: var(--vb-bg-primary);
   border: rem(1) solid var(--vb-border-subtle);
   border-radius: rem(16);
-  box-shadow: 0 rem(16) rem(48) rgba(0, 0, 0, 0.18);
+  box-shadow: var(--vb-shadow-xl);
   display: flex;
   flex-direction: column;
   overflow: hidden;

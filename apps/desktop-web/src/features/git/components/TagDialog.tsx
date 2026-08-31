@@ -181,7 +181,7 @@ export const TagDialog = memo(function TagDialog({
             <footer className="git-confirm-modal__footer">
               <button
                 type="button"
-                className="v-btn v-btn-secondary"
+                className="gto-btn gto-btn--secondary"
                 onClick={() => setDeleteConfirmName(null)}
                 disabled={submitting}
               >
@@ -189,7 +189,7 @@ export const TagDialog = memo(function TagDialog({
               </button>
               <button
                 type="button"
-                className="v-btn v-btn-danger git-confirm-modal__danger-btn"
+                className="gto-btn gto-btn--danger git-confirm-modal__danger-btn"
                 onClick={() => void handleDeleteConfirm()}
                 disabled={submitting}
               >

@@ -34,16 +34,10 @@
   }
 }
 
-/* Light theme overrides */
-[data-theme='graphite-light'] .monaco-editor,
-:not([data-theme]) .monaco-editor {
-  background: var(--vb-surface) !important;
-}
-
-/* Dark theme overrides */
-[data-theme='graphite-dark'] .monaco-editor,
-[data-theme='sakura-night'] .monaco-editor {
-  background: var(--vb-surface) !important;
+/* The editor surface stays transparent in every theme so the pane material
+   (glass / native vibrancy) shows through — no white slab, no seams. */
+.monaco-editor {
+  background: transparent !important;
 }
 
 /* Ensure the container fills its parent */

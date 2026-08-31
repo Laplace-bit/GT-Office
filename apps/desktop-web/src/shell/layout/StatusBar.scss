@@ -14,7 +14,7 @@
   border-top: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: inset 0 rem(1) 0 color-mix(in srgb, var(--vb-glass-lighter) 72%, transparent);
   color: var(--vb-text-muted);
-  font-size: #{rem(11.5)};
+  font-size: #{rem(12)};
   font-weight: 500;
   transition:
     background-color var(--vb-duration-fast) var(--vb-ease-out),
@@ -94,7 +94,7 @@
     justify-content: flex-start;
     gap: #{rem(5)} !important;
     padding: #{rem(2)} #{rem(6)} #{rem(2)} #{rem(3)} !important;
-    border-radius: #{rem(7)};
+    border-radius: var(--vb-radius-sm);
     background: color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent);
     box-shadow: inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-border-subtle) 76%, transparent);
     contain: layout paint;
@@ -181,17 +181,19 @@
   }
 
   .station-minimized-dock-monogram {
-    font-size: #{rem(9.5)};
+    font-size: #{rem(10)};
     font-weight: 700;
+    line-height: 1;
   }
 
   .station-minimized-dock-badge {
     top: #{rem(-3)};
     right: #{rem(-3)};
-    min-width: #{rem(10)};
-    height: #{rem(10)};
-    padding: 0 #{rem(2)};
-    font-size: #{rem(6.5)};
+    min-width: #{rem(12)};
+    height: #{rem(12)};
+    padding: 0 #{rem(3)};
+    font-size: #{rem(8)};
+    line-height: #{rem(12)};
   }
 
   .station-minimized-dock-label {
@@ -213,8 +215,8 @@
   }
 
   .station-minimized-dock-label strong {
-    font-size: #{rem(9.25)};
-    line-height: 1.1;
+    font-size: #{rem(10)};
+    line-height: 1.15;
   }
 
   .station-minimized-dock-indicator {
@@ -297,7 +299,7 @@
   border-radius: #{rem(4)};
   background: transparent;
   color: var(--vb-text);
-  font-size: #{rem(11.5)};
+  font-size: #{rem(12)};
   font-family: var(--vb-font-mono);
   width: 100%;
   outline: none;

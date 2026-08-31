@@ -923,14 +923,14 @@ export const GitGraphView = memo(function GitGraphView({
             <footer className="git-confirm-modal__footer">
               <button
                 type="button"
-                className="v-btn v-btn-secondary"
+                className="gto-btn gto-btn--secondary"
                 onClick={() => setResetConfirmTarget(null)}
               >
                 {t(locale, 'git.action.cancel')}
               </button>
               <button
                 type="button"
-                className="v-btn v-btn-danger git-confirm-modal__danger-btn"
+                className="gto-btn gto-btn--danger git-confirm-modal__danger-btn"
                 onClick={() => {
                   onReset?.(resetConfirmTarget, 'hard')
                   setResetConfirmTarget(null)

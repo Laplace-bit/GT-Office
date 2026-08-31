@@ -396,8 +396,8 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-accent) 5%, transparent), transparent 30%);
-  opacity: 0.15;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-surface) 60%, #ffffff) 0%, transparent 30%);
+  opacity: 0.5;
   z-index: 1;
 }
 

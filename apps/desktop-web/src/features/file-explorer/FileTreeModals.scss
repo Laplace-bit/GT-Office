@@ -1,115 +1,95 @@
+@use '../../styles/tokens/responsive' as *;
+
 .file-tree-modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  inset: 0;
+  z-index: 1200;
+  background: color-mix(in srgb, var(--vb-bg) 52%, transparent);
+  backdrop-filter: blur(#{rem(24)}) saturate(120%);
+  -webkit-backdrop-filter: blur(#{rem(24)}) saturate(120%);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10001;
-  animation: modal-fade-in 0.2s ease-out;
+  padding: var(--vb-space-xl);
+  animation: file-tree-modal-fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .file-tree-modal-content {
-  width: 400px;
-  background: var(--vb-pane-bg, #1c1c1e);
-  border: 1px solid var(--vb-border-color, rgba(255, 255, 255, 0.12));
-  border-radius: 12px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  width: #{rem(400)};
+  max-width: 100%;
+  background: var(--vb-surface-elevated);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 55%, transparent);
+  border-radius: var(--vb-radius-lg);
+  box-shadow: var(--vb-shadow-xl), var(--vb-shadow-inset);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: modal-scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: file-tree-modal-scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .file-tree-modal-header {
-  padding: 1.25rem 1.25rem 0.75rem;
+  padding: var(--vb-space-xl) var(--vb-space-xl) var(--vb-space-sm);
+
   h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: #{rem(16)};
     font-weight: 600;
-    color: var(--vb-text-primary, #ffffff);
+    color: var(--vb-text-primary);
+    letter-spacing: -0.01em;
   }
 }
 
 .file-tree-modal-body {
-  padding: 0 1.25rem 1.25rem;
+  padding: 0 var(--vb-space-xl);
+
   p {
     margin: 0;
-    color: var(--vb-text-secondary, rgba(255, 255, 255, 0.7));
-    font-size: 0.875rem;
+    color: var(--vb-text-secondary);
+    font-size: #{rem(13)};
     line-height: 1.5;
   }
 }
 
 .file-tree-modal-input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--vb-border-color, rgba(255, 255, 255, 0.1));
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  color: var(--vb-text-primary, #ffffff);
-  font-size: 0.875rem;
+  background: var(--vb-input-bg);
+  border: var(--vb-border-width) solid var(--vb-input-border);
+  border-radius: var(--vb-radius-sm);
+  padding: var(--vb-space-sm) var(--vb-space-md);
+  color: var(--vb-text-primary);
+  font-size: #{rem(13)};
+  font-family: var(--vb-font-ui);
   outline: none;
-  transition: border-color 0.2s;
+  transition:
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
 
   &:focus {
-    border-color: var(--vb-accent-color, #0a84ff);
-    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--vb-accent-color);
+    box-shadow: 0 0 0 #{rem(4)} var(--vb-accent-light);
   }
 }
 
 .file-tree-modal-footer {
-  padding: 0.75rem 1.25rem 1.25rem;
+  padding: var(--vb-space-md) var(--vb-space-xl) var(--vb-space-xl);
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
-
-  .v-btn {
-    padding: 0.375rem 1rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-  }
-
-  .v-btn-primary {
-    background: var(--vb-accent-color, #0a84ff);
-    color: white;
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  }
-
-  .v-btn-secondary {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--vb-text-primary, #ffffff);
-    &:hover {
-      background: rgba(255, 255, 255, 0.15);
-    }
-  }
-
-  .v-btn-danger {
-    background: #ff453a;
-    color: white;
-    &:hover {
-      background: #ff3b30;
-    }
-  }
+  gap: var(--vb-space-sm);
 }
 
-@keyframes modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes modal-scale-in {
+@keyframes file-tree-modal-fade-in {
   from {
     opacity: 0;
-    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes file-tree-modal-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(#{rem(10)});
   }
   to {
     opacity: 1;

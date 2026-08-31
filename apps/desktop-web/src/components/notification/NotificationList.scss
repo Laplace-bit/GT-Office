@@ -1,3 +1,5 @@
+@use '../../styles/tokens/responsive' as *;
+
 .notification-list {
   position: fixed;
   bottom: 1.5rem;
@@ -16,35 +18,35 @@
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  background: var(--vb-pane-bg, rgba(28, 28, 30, 0.85));
-  backdrop-filter: blur(48px) saturate(210%);
-  -webkit-backdrop-filter: blur(48px) saturate(210%);
-  border: 1px solid var(--vb-border-color, rgba(255, 255, 255, 0.12));
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  background: var(--vb-pane-bg);
+  backdrop-filter: blur(#{rem(42)}) saturate(210%);
+  -webkit-backdrop-filter: blur(#{rem(42)}) saturate(210%);
+  border: var(--vb-border-width) solid var(--vb-border-color);
+  border-radius: var(--vb-radius-md);
+  box-shadow: var(--vb-shadow-xl);
   animation: notification-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  color: var(--vb-text-primary, #ffffff);
-  font-size: 0.875rem;
-  line-height: 1.4;
+  color: var(--vb-text-primary);
+  font-size: #{rem(13)};
+  line-height: 1.45;
 
   &.notification-error {
-    border-left: 4px solid #ff453a;
-    .notification-icon { color: #ff453a; }
+    border-left: #{rem(4)} solid var(--vb-error);
+    .notification-icon { color: var(--vb-error); }
   }
 
   &.notification-warning {
-    border-left: 4px solid #ffd60a;
-    .notification-icon { color: #ffd60a; }
+    border-left: #{rem(4)} solid var(--vb-warning);
+    .notification-icon { color: var(--vb-warning); }
   }
 
   &.notification-success {
-    border-left: 4px solid #32d74b;
-    .notification-icon { color: #32d74b; }
+    border-left: #{rem(4)} solid var(--vb-success);
+    .notification-icon { color: var(--vb-success); }
   }
 
   &.notification-info {
-    border-left: 4px solid #0a84ff;
-    .notification-icon { color: #0a84ff; }
+    border-left: #{rem(4)} solid var(--vb-accent);
+    .notification-icon { color: var(--vb-accent); }
   }
 }
 
@@ -69,15 +71,17 @@
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 4px;
-  color: var(--vb-text-secondary, rgba(255, 255, 255, 0.5));
+  border-radius: var(--vb-radius-xs);
+  color: var(--vb-text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
-  margin: -0.25rem -0.25rem 0 0;
+  transition:
+    background var(--vb-duration-fast) var(--vb-ease-out),
+    color var(--vb-duration-fast) var(--vb-ease-out);
+  margin: -#{rem(4)} -#{rem(4)} 0 0;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--vb-text-primary, #ffffff);
+    background: var(--vb-hover-overlay);
+    color: var(--vb-text-primary);
   }
 
   svg {

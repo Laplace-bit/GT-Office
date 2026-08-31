@@ -63,12 +63,12 @@ export const GitConfirmDialog = memo(function GitConfirmDialog({
           ) : null}
         </div>
         <footer className="git-confirm-modal__footer">
-          <button type="button" className="v-btn v-btn-secondary" onClick={onClose} disabled={loading}>
+          <button type="button" className="gto-btn gto-btn--secondary" onClick={onClose} disabled={loading}>
             {t(locale, 'git.action.cancel')}
           </button>
           <button
             type="button"
-            className="v-btn v-btn-danger git-confirm-modal__danger-btn"
+            className="gto-btn gto-btn--danger git-confirm-modal__danger-btn"
             onClick={onConfirm}
             disabled={loading}
           >

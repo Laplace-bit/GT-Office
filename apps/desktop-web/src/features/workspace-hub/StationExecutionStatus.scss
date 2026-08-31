@@ -12,7 +12,7 @@
   border-radius: rem(999);
   background: color-mix(in srgb, var(--vb-surface) 62%, transparent);
   color: var(--vb-text-muted);
-  font-size: rem(9.5);
+  font-size: rem(10);
   font-weight: 650;
   line-height: 1;
   user-select: none;
@@ -76,7 +76,7 @@
   min-width: 0;
   min-height: rem(18);
   padding: 0 rem(6);
-  font-size: rem(9);
+  font-size: rem(10);
 }
 
 .station-execution-status.compact .station-execution-status-dot {

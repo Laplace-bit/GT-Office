@@ -2725,7 +2725,7 @@
     width: 100%;
     min-height: 18rem;
     border: 0;
-    background: #fff;
+    background: var(--designer-surface);
   }
 }
 
@@ -2747,7 +2747,7 @@
   font-size: 0.8125rem;
 
   &__code {
-    font-family: monospace;
+    font-family: var(--vb-font-mono);
     color: var(--designer-muted, #888);
     font-size: 0.75rem;
   }

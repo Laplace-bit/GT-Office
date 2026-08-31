@@ -10,3 +10,134 @@
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* ========================================
+   Shared Button System — Apple system-rounded
+   Replaces scattered `.v-btn` native-button look
+   and the AiConfigOverlay-scoped `.nav-btn`
+   across dialogs, git and settings surfaces.
+   ======================================== */
+
+.gto-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vb-space-xs);
+  min-height: var(--vb-size-control-lg);
+  padding: 0 var(--vb-space-lg);
+  border-radius: var(--vb-radius-md);
+  border: var(--vb-border-width) solid var(--vb-border-subtle);
+  background: color-mix(in srgb, var(--vb-surface) 92%, transparent);
+  color: var(--vb-text);
+  font-size: #{rem(13)};
+  font-weight: 500;
+  font-family: var(--vb-font-ui);
+  line-height: 1.2;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  white-space: nowrap;
+  transition:
+    transform var(--vb-duration-fast) var(--vb-ease-spring),
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
+
+  &:hover:not(:disabled) {
+    background: var(--vb-card-hover-bg);
+    border-color: var(--vb-border-strong);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 #{rem(4)} var(--vb-accent-light);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.gto-btn--primary {
+  background: var(--vb-accent);
+  border-color: transparent;
+  color: var(--vb-color-white, #ffffff);
+  box-shadow: 0 #{rem(1)} #{rem(4)} color-mix(in srgb, var(--vb-accent) 28%, transparent);
+
+  &:hover:not(:disabled) {
+    background: var(--vb-accent-hover);
+    border-color: transparent;
+    color: var(--vb-color-white, #ffffff);
+  }
+}
+
+.gto-btn--secondary {
+  background: var(--vb-surface);
+}
+
+.gto-btn--danger {
+  background: transparent;
+  color: var(--vb-error);
+  border-color: color-mix(in srgb, var(--vb-error) 32%, transparent);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vb-error) 10%, transparent);
+    border-color: color-mix(in srgb, var(--vb-error) 44%, transparent);
+    color: var(--vb-error);
+  }
+}
+
+/* ========================================
+   Settings primary actions — pill variant
+   Kept under the historical `.nav-btn`/.btn-*
+   class names so every settings surface (which
+   no longer reliably imports AiConfigOverlay.scss)
+   gets a styled button instead of native chrome.
+   ======================================== */
+
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: #{rem(8)};
+  min-height: #{rem(42)};
+  padding: 0 #{rem(16)};
+  border-radius: #{rem(999)};
+  border: #{rem(1)} solid color-mix(in srgb, var(--vb-border) 78%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 94%, #ffffff);
+  color: var(--vb-text);
+  font-weight: 700;
+  font-family: var(--vb-font-ui);
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-#{rem(1)});
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &.btn-primary {
+    background: var(--vb-accent);
+    border-color: transparent;
+    color: var(--vb-color-white, #ffffff);
+  }
+
+  &.btn-secondary {
+    background: transparent;
+  }
+
+  &.btn-apply {
+    background: var(--vb-success);
+    border-color: transparent;
+    color: var(--vb-color-white, #ffffff);
+  }
+}

@@ -22,6 +22,15 @@
   --designer-edge-uses: color-mix(in srgb, var(--vb-text-muted) 64%, transparent);
   --designer-edge-extends: color-mix(in srgb, var(--vb-accent) 50%, transparent);
 
+  /* Screen-preview & inspector surfaces — the designer pane previously fell
+     back to hardcoded light greys (#d0d0d0 / #f5f5f7 / #888), which stayed
+     light in dark themes. Wire them to tokens so they follow the theme. */
+  --designer-border: var(--vb-border-subtle);
+  --designer-surface: var(--vb-surface);
+  --designer-toolbar-bg: color-mix(in srgb, var(--vb-surface-muted) 44%, transparent);
+  --designer-muted: var(--vb-text-muted);
+  --designer-warning: var(--vb-warning);
+
   --designer-gap-warning: var(--vb-warning);
   --designer-gap-error: var(--vb-error);
   --designer-gap-resolved: var(--vb-success);

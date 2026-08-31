@@ -173,7 +173,7 @@
   border-radius: rem(22);
   border: rem(1) solid color-mix(in srgb, var(--vb-border) 78%, transparent);
   background: color-mix(in srgb, var(--vb-surface) 96%, white);
-  box-shadow: 0 rem(18) rem(44) rgba(15, 23, 42, 0.24);
+  box-shadow: var(--vb-shadow-xl);
 
   h4 {
     margin: 0;
@@ -614,7 +614,7 @@
   textarea {
     min-height: rem(136);
     resize: vertical;
-    font-family: var(--mono-font-family);
+    font-family: var(--vb-font-mono);
   }
 
   .is-readonly {

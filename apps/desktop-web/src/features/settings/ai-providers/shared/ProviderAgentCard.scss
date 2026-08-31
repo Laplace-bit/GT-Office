@@ -5,7 +5,7 @@
 .ai-provider-card {
   background: var(--vb-bg-secondary);
   border: rem(1) solid var(--vb-border-subtle);
-  border-radius: rem(16);
+  border-radius: var(--vb-radius-lg);
   padding: rem(18) rem(18) rem(14);
   display: flex;
   flex-direction: column;
@@ -46,7 +46,7 @@
     align-items: center;
     justify-content: center;
     background: var(--vb-bg-tertiary);
-    border-radius: rem(10);
+    border-radius: var(--vb-radius-sm);
     border: rem(1) solid var(--vb-border-subtle);
     overflow: hidden;
   }
@@ -76,11 +76,11 @@
       border-radius: 50%;
 
       &.tone-success {
-        background: #0f8f50;
-        box-shadow: 0 0 rem(6) rgba(15, 143, 80, 0.5);
+        background: var(--vb-success);
+        box-shadow: 0 0 rem(6) color-mix(in srgb, var(--vb-success) 55%, transparent);
       }
 
-      &.tone-warning { background: #d4af37; }
+      &.tone-warning { background: var(--vb-warning); }
       &.tone-muted { background: var(--vb-text-muted); }
     }
   }
@@ -101,7 +101,7 @@
   font-size: rem(11);
   font-weight: 500;
   padding: rem(3) rem(8);
-  border-radius: rem(100);
+  border-radius: var(--vb-radius-full);
   white-space: nowrap;
 
   &.is-loading {
@@ -112,13 +112,13 @@
   }
 
   &.is-success {
-    color: #0b7540;
-    background: rgba(15, 143, 80, 0.09);
+    color: var(--vb-success);
+    background: color-mix(in srgb, var(--vb-success) 11%, transparent);
   }
 
   &.is-warning {
-    color: #a07c10;
-    background: rgba(212, 175, 55, 0.1);
+    color: var(--vb-warning);
+    background: color-mix(in srgb, var(--vb-warning) 12%, transparent);
   }
 
   &.is-enhanced {
@@ -134,9 +134,9 @@
   flex-direction: column;
   gap: rem(6);
   padding: rem(8) rem(10);
-  border-radius: rem(8);
-  background: rgba(212, 175, 55, 0.07);
-  border: rem(1) solid rgba(212, 175, 55, 0.16);
+  border-radius: var(--vb-radius-sm);
+  background: color-mix(in srgb, var(--vb-warning) 8%, transparent);
+  border: rem(1) solid color-mix(in srgb, var(--vb-warning) 18%, transparent);
 
   &.is-info {
     background: color-mix(in srgb, var(--vb-accent) 5%, transparent);
@@ -155,7 +155,7 @@
     font-size: rem(11);
     font-weight: 500;
     line-height: 1.5;
-    color: #c89b20;
+    color: var(--vb-warning);
 
     svg {
       flex-shrink: 0;
@@ -261,9 +261,9 @@
 
   &.is-danger {
     &:hover:not(:disabled):not(.is-disabled) {
-      border-color: #d94444;
-      color: #d94444;
-      background: rgba(217, 68, 68, 0.07);
+      border-color: var(--vb-error);
+      color: var(--vb-error);
+      background: color-mix(in srgb, var(--vb-error) 8%, transparent);
     }
   }
 
@@ -296,8 +296,8 @@
   flex-direction: column;
   background: var(--vb-bg-primary);
   border: rem(1) solid var(--vb-border-subtle);
-  border-radius: rem(16);
-  box-shadow: 0 rem(16) rem(48) rgba(0, 0, 0, 0.18);
+  border-radius: var(--vb-radius-lg);
+  box-shadow: var(--vb-shadow-xl);
   overflow: hidden;
   animation: pac-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 

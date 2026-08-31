@@ -134,47 +134,6 @@
   }
 }
 
-.nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: rem(8);
-  min-height: rem(42);
-  padding: 0 rem(16);
-  border-radius: rem(999);
-  border: rem(1) solid color-mix(in srgb, var(--vb-border) 78%, transparent);
-  background: color-mix(in srgb, var(--vb-surface) 94%, white);
-  color: var(--vb-text);
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
-
-  &:hover:not(:disabled) {
-    transform: translateY(-rem(1));
-  }
-
-  &:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  &.btn-primary {
-    background: #171717;
-    border-color: #171717;
-    color: #fff;
-  }
-
-  &.btn-secondary {
-    background: transparent;
-  }
-
-  &.btn-apply {
-    background: #10b981;
-    border-color: #10b981;
-    color: #fff;
-  }
-}
-
 /* === Side Action Buttons === */
 .ai-config-side-action {
   position: absolute;
