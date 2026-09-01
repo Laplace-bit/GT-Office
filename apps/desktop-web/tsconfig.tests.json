@@ -29,6 +29,7 @@
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
     "src/features/git/components/git-helpers.ts",
     "src/features/terminal/station-terminal-input-buffer.ts",
+    "src/features/terminal/agent-execution-state.ts",
     "src/features/terminal/station-terminal-input-flush-policy.ts",
     "src/features/terminal/station-terminal-runtime-state.ts",
     "src/features/terminal/station-terminal-host-pool.ts",

@@ -573,6 +573,19 @@ export const messages = {
   'station.status.errored': { 'zh-CN': '异常', 'en-US': 'Errored' },
   'station.status.recovering': { 'zh-CN': '恢复中', 'en-US': 'Recovering' },
   'station.status.stopped': { 'zh-CN': '已停止', 'en-US': 'Stopped' },
+  'station.notification.agentFallback': { 'zh-CN': 'Agent', 'en-US': 'Agent' },
+  'station.notification.completed': {
+    'zh-CN': '{agent} 已完成当前响应',
+    'en-US': '{agent} completed its current response',
+  },
+  'station.notification.awaitingInput': {
+    'zh-CN': '{agent} 正在等待你的输入',
+    'en-US': '{agent} is awaiting your input',
+  },
+  'station.notification.blocked': {
+    'zh-CN': '{agent} 需要处理后才能继续',
+    'en-US': '{agent} needs attention before it can continue',
+  },
   'station.status.description.idle': {
     'zh-CN': '尚未连接终端会话',
     'en-US': 'No terminal session is connected',

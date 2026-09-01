@@ -11,8 +11,9 @@ import {
 } from 'react'
 import {
   appendStationTerminalDebugRecord as appendStationTerminalDebugStoreRecord,
-  detectAgentExecutionState,
   buildStationTerminalCommandSubmitChunks,
+  confirmAgentExecutionTracker,
+  createAgentExecutionTracker,
   createTerminalChunkDecoder,
   decodeTerminalBase64Chunk,
   formatTerminalDebugBody,
@@ -20,6 +21,9 @@ import {
   isStationTerminalRuntimeLive,
   isStationTerminalDebugEnabled,
   normalizeAgentExecutionState,
+  observeAgentExecutionIntent,
+  observeAgentExecutionOutput,
+  observeAgentExecutionScreen,
   resetTerminalChunkDecoder,
   setStationTerminalDebugHumanLog,
   buildClosedStationTerminalRuntime,
@@ -65,13 +69,13 @@ import {
   STATION_TERMINAL_OUTPUT_FLUSH_ACTIVE_CHAR_LIMIT,
   takeStationTerminalOutputFlushFrameEntries,
   takeStationTerminalOutputFlushEntries,
-  transitionAgentExecutionState,
   waitForStationTerminalFrameFlush,
   peekParkedStationTerminalHost,
   disposeParkedStationTerminalHost,
   disposeAllParkedStationTerminalHosts,
   type BufferedStationInputController,
-  type AgentExecutionObservation,
+  type AgentExecutionTracker,
+  type AgentExecutionTrackerTransition,
   type SessionOwnedRestoreState,
   type TerminalChunkDecoder,
   type TerminalDebugRecordInput,
@@ -137,6 +141,7 @@ import {
   type SurfaceBridgeEventPayload,
 } from '../integration/desktop-api'
 import { t, type Locale } from '../i18n/ui-locale'
+import { addNotification } from '@/stores/notification'
 import {
   createWorkspaceTerminalSessionDocument,
   findWorkspaceTerminalSessionOwner,
@@ -274,7 +279,7 @@ export interface ShellTerminalController {
 
   // Core terminal operations
   bindStationTerminalSink: StationTerminalSinkBindingHandler
-  appendStationTerminalOutput: (stationId: string, chunk: string) => void
+  appendStationTerminalOutput: (stationId: string, chunk: string, observedAtMs?: number) => void
   resetStationTerminalOutput: (stationId: string, content?: string) => void
   setStationTerminalState: (stationId: string, patch: Partial<StationTerminalRuntime>) => void
   clearStationUnread: (stationId: string) => void
@@ -421,10 +426,7 @@ export function useShellTerminalController({
   const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
   const renderedScreenReportRevisionRef = useRef<Map<string, number>>(new Map())
-  const agentExecutionObservationRef = useRef<Record<string, AgentExecutionObservation>>({})
-  const agentExecutionSnapshotRef = useRef<
-    Record<string, { snapshot: RenderedScreenSnapshot; toolKind: string }>
-  >({})
+  const agentExecutionTrackerRef = useRef<Record<string, AgentExecutionTracker>>({})
   const agentExecutionConfirmationTimerRef = useRef<Record<string, number>>({})
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
@@ -1361,30 +1363,6 @@ export function useShellTerminalController({
     scheduleTerminalDocumentPersist,
   ])
 
-  const appendStationTerminalOutput = useMemo(
-    () => (stationId: string, chunk: string) => {
-      if (!chunk) {
-        return
-      }
-      if (isStationTerminalDebugEnabled(stationId)) {
-        const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-        pushStationTerminalDebugRecord(stationId, {
-          sessionId,
-          lane: 'xterm',
-          kind: 'write',
-          source: 'append',
-          summary: formatTerminalDebugPreview(chunk, 84),
-          body: chunk,
-        })
-      }
-      queueStationTerminalOutputFlush(stationTerminalOutputFlushQueueRef.current, stationId, chunk, 1, {
-        protectedStationId: activeStationIdRef.current,
-      })
-      scheduleStationTerminalOutputFlush()
-    },
-    [pushStationTerminalDebugRecord, scheduleStationTerminalOutputFlush],
-  )
-
   useEffect(() => {
     if (!activeStationId) {
       return
@@ -1447,8 +1425,7 @@ export function useShellTerminalController({
           ? { ...patch, executionState: 'unknown' as const }
           : patch
       if (sessionBindingChanged) {
-        delete agentExecutionObservationRef.current[stationId]
-        delete agentExecutionSnapshotRef.current[stationId]
+        delete agentExecutionTrackerRef.current[stationId]
         const confirmationTimer = agentExecutionConfirmationTimerRef.current[stationId]
         if (confirmationTimer !== undefined && typeof window !== 'undefined') {
           window.clearTimeout(confirmationTimer)
@@ -1528,58 +1505,189 @@ export function useShellTerminalController({
   )
 
   const reportAgentExecutionState = useMemo(() => {
-    const applyObservation: (
-      stationId: string,
-      snapshot: RenderedScreenSnapshot,
-      toolKind: string,
-      observedAtMs: number,
-    ) => void = (
-      stationId: string,
-      snapshot: RenderedScreenSnapshot,
-      toolKind: string,
-      observedAtMs: number,
-    ) => {
-      const runtime = stationTerminalsRef.current[stationId]
-      const sessionId = runtime?.sessionId ?? null
-      if (!sessionId || snapshot.sessionId !== sessionId) {
-        return
-      }
+    const clearConfirmationTimer = (stationId: string) => {
       const existingTimer = agentExecutionConfirmationTimerRef.current[stationId]
       if (existingTimer !== undefined && typeof window !== 'undefined') {
         window.clearTimeout(existingTimer)
       }
       delete agentExecutionConfirmationTimerRef.current[stationId]
+    }
 
-      agentExecutionSnapshotRef.current[stationId] = { snapshot, toolKind }
-      const previous = agentExecutionObservationRef.current[stationId] ?? {
-        sessionId,
-        state: normalizeAgentExecutionState(runtime?.executionState),
-        pendingIdleSinceMs: null,
-        pendingIdleConfirmations: 0,
+    const resolveTracker = (
+      stationId: string,
+      sessionId: string,
+      toolKind: string,
+      executionState: string | null | undefined,
+      observedAtMs: number,
+    ): AgentExecutionTracker => {
+      const existing = agentExecutionTrackerRef.current[stationId]
+      if (existing?.sessionId === sessionId) {
+        return existing.toolKind === toolKind ? existing : { ...existing, toolKind }
       }
-      const transition = transitionAgentExecutionState(previous, {
+      return createAgentExecutionTracker({
         sessionId,
-        candidate: detectAgentExecutionState(snapshot, toolKind),
+        toolKind,
+        initialState: normalizeAgentExecutionState(executionState),
         observedAtMs,
       })
-      agentExecutionObservationRef.current[stationId] = transition.observation
-      if (transition.changed) {
-        setStationTerminalState(stationId, { executionState: transition.observation.state })
+    }
+
+    const notifyTransition = (stationId: string, notification: AgentExecutionTrackerTransition['notification']) => {
+      if (!notification || activeStationIdRef.current === stationId) {
+        return
       }
-      if (transition.idleConfirmationDelayMs === null || typeof window === 'undefined') {
+      const agent = stationsRef.current.find((station) => station.id === stationId)?.name ?? t(
+        locale,
+        'station.notification.agentFallback',
+      )
+      if (notification === 'completed') {
+        addNotification({
+          type: 'success',
+          message: t(locale, 'station.notification.completed', { agent }),
+        })
+        return
+      }
+      if (notification === 'awaiting-input') {
+        addNotification({
+          type: 'warning',
+          message: t(locale, 'station.notification.awaitingInput', { agent }),
+        })
+        return
+      }
+      addNotification({
+        type: 'warning',
+        message: t(locale, 'station.notification.blocked', { agent }),
+      })
+    }
+
+    const applyTrackerTransition = (
+      stationId: string,
+      sessionId: string,
+      trackerTransition: AgentExecutionTrackerTransition,
+    ) => {
+      if ((stationTerminalsRef.current[stationId]?.sessionId ?? null) !== sessionId) {
+        return
+      }
+      agentExecutionTrackerRef.current[stationId] = trackerTransition.tracker
+      if (trackerTransition.transition.changed) {
+        setStationTerminalState(stationId, {
+          executionState: trackerTransition.transition.observation.state,
+        })
+      }
+      notifyTransition(stationId, trackerTransition.notification)
+      const delayMs = trackerTransition.transition.idleConfirmationDelayMs
+      if (delayMs === null || typeof window === 'undefined') {
         return
       }
       agentExecutionConfirmationTimerRef.current[stationId] = window.setTimeout(() => {
         delete agentExecutionConfirmationTimerRef.current[stationId]
-        const latest = agentExecutionSnapshotRef.current[stationId]
-        if (!latest || latest.snapshot.sessionId !== sessionId) {
+        if ((stationTerminalsRef.current[stationId]?.sessionId ?? null) !== sessionId) {
           return
         }
-        applyObservation(stationId, latest.snapshot, latest.toolKind, Date.now())
-      }, transition.idleConfirmationDelayMs)
+        const tracker = agentExecutionTrackerRef.current[stationId]
+        if (!tracker || tracker.sessionId !== sessionId) {
+          return
+        }
+        applyTrackerTransition(
+          stationId,
+          sessionId,
+          confirmAgentExecutionTracker(tracker, { observedAtMs: Date.now() }),
+        )
+      }, delayMs)
     }
-    return applyObservation
-  }, [setStationTerminalState])
+
+    return {
+      intent: (stationId: string, source: 'launch' | 'input', observedAtMs: number) => {
+        const runtime = stationTerminalsRef.current[stationId]
+        const sessionId = runtime?.sessionId ?? null
+        if (!sessionId) {
+          return
+        }
+        clearConfirmationTimer(stationId)
+        const station = stationsRef.current.find((item) => item.id === stationId)
+        const toolKind = normalizeStationToolKind(station?.tool)
+        const tracker = resolveTracker(
+          stationId,
+          sessionId,
+          toolKind,
+          runtime?.executionState,
+          observedAtMs,
+        )
+        applyTrackerTransition(
+          stationId,
+          sessionId,
+          observeAgentExecutionIntent(tracker, { source, observedAtMs }),
+        )
+      },
+      output: (stationId: string, text: string, observedAtMs: number) => {
+        const runtime = stationTerminalsRef.current[stationId]
+        const sessionId = runtime?.sessionId ?? null
+        if (!sessionId || !text) {
+          return
+        }
+        clearConfirmationTimer(stationId)
+        const station = stationsRef.current.find((item) => item.id === stationId)
+        const toolKind = normalizeStationToolKind(station?.tool)
+        const tracker = resolveTracker(
+          stationId,
+          sessionId,
+          toolKind,
+          runtime?.executionState,
+          observedAtMs,
+        )
+        applyTrackerTransition(
+          stationId,
+          sessionId,
+          observeAgentExecutionOutput(tracker, { text, observedAtMs }),
+        )
+      },
+      screen: (stationId: string, snapshot: RenderedScreenSnapshot, toolKind: string, observedAtMs: number) => {
+        const runtime = stationTerminalsRef.current[stationId]
+        const sessionId = runtime?.sessionId ?? null
+        if (!sessionId || snapshot.sessionId !== sessionId) {
+          return
+        }
+        clearConfirmationTimer(stationId)
+        const tracker = resolveTracker(
+          stationId,
+          sessionId,
+          toolKind,
+          runtime?.executionState,
+          observedAtMs,
+        )
+        applyTrackerTransition(
+          stationId,
+          sessionId,
+          observeAgentExecutionScreen(tracker, { snapshot, observedAtMs }),
+        )
+      },
+    }
+  }, [locale, setStationTerminalState])
+
+  const appendStationTerminalOutput = useMemo(
+    () => (stationId: string, chunk: string, observedAtMs: number = Date.now()) => {
+      if (!chunk) {
+        return
+      }
+      reportAgentExecutionState.output(stationId, chunk, observedAtMs)
+      if (isStationTerminalDebugEnabled(stationId)) {
+        const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+        pushStationTerminalDebugRecord(stationId, {
+          sessionId,
+          lane: 'xterm',
+          kind: 'write',
+          source: 'append',
+          summary: formatTerminalDebugPreview(chunk, 84),
+          body: chunk,
+        })
+      }
+      queueStationTerminalOutputFlush(stationTerminalOutputFlushQueueRef.current, stationId, chunk, 1, {
+        protectedStationId: activeStationIdRef.current,
+      })
+      scheduleStationTerminalOutputFlush()
+    },
+    [pushStationTerminalDebugRecord, reportAgentExecutionState, scheduleStationTerminalOutputFlush],
+  )
 
   useEffect(
     () => () => {
@@ -2325,6 +2433,9 @@ export function useShellTerminalController({
         ...currentRuntime,
         sessionId,
         stateRaw: 'running',
+        executionState: resolveStationCliLaunchCommand(input.station.toolKind, input.station.launchCommand)
+          ? 'working'
+          : 'unknown',
         unreadCount: currentRuntime.sessionId === sessionId ? currentRuntime.unreadCount : 0,
         shell: input.shell,
         cwdMode: input.cwdMode,
@@ -2498,7 +2609,7 @@ export function useShellTerminalController({
                 ? debugDirectText
                 : decodeBase64Chunk(payload.sessionId, payload.chunk, true)
               if (text) {
-                appendStationTerminalOutput(stationId, text)
+                appendStationTerminalOutput(stationId, text, payload.tsMs)
               }
               terminalSessionSeqRef.current[payload.sessionId] = payload.seq
               if (!text) {
@@ -2560,7 +2671,7 @@ export function useShellTerminalController({
                   ? debugDirectText
                   : decodeBase64Chunk(payload.sessionId, payload.chunk, true)
                 if (text) {
-                  appendStationTerminalOutput(stationId, text)
+                  appendStationTerminalOutput(stationId, text, payload.tsMs)
                 }
                 terminalSessionSeqRef.current[payload.sessionId] = payload.seq
                 if (!text) {
@@ -2857,7 +2968,7 @@ export function useShellTerminalController({
             })
           }
           if (tail) {
-            appendStationTerminalOutput(stationId, tail)
+            appendStationTerminalOutput(stationId, tail, payload.tsMs)
           }
           if (stationId !== activeStationIdRef.current) {
             const delta = normalizeStationTerminalMetaUnreadChunks(payload.unreadChunks)
@@ -3285,6 +3396,9 @@ export function useShellTerminalController({
                 )
                 return
               }
+              if (/\r|\n/.test(queuedInput)) {
+                reportAgentExecutionState.intent(targetStationId, 'input', Date.now())
+              }
               scheduleStationTerminalOutputRecovery(workspaceId, targetStationId, sessionId)
             } catch (error) {
               appendStationTerminalOutput(
@@ -3304,6 +3418,7 @@ export function useShellTerminalController({
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
       locale,
+      reportAgentExecutionState,
       scheduleStationTerminalOutputRecovery,
     ],
   )
@@ -3367,6 +3482,7 @@ export function useShellTerminalController({
           )
           return false
         }
+        reportAgentExecutionState.intent(stationId, 'input', Date.now())
         scheduleStationTerminalOutputRecovery(workspaceId, stationId, sessionId)
         return true
       } catch (error) {
@@ -3384,6 +3500,7 @@ export function useShellTerminalController({
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
       locale,
+      reportAgentExecutionState,
       scheduleStationTerminalOutputRecovery,
       submitStationTerminal,
     ],
@@ -3874,7 +3991,7 @@ export function useShellTerminalController({
       }
       const station = stationsRef.current.find((item) => item.id === stationId)
       const toolKind = normalizeStationToolKind(station?.tool)
-      reportAgentExecutionState(stationId, snapshot, toolKind, snapshot.capturedAtMs)
+      reportAgentExecutionState.screen(stationId, snapshot, toolKind, snapshot.capturedAtMs)
       if (!desktopApi.isTauriRuntime() || performanceDebugState.enabled) {
         return
       }
@@ -4109,15 +4226,20 @@ export function useShellTerminalController({
             cwd: response.resolvedCwd ?? station.agentWorkdirRel,
           })}`,
         )
+        const launchesCliAgent = Boolean(
+          resolveStationCliLaunchCommand(station.toolKind, station.launchCommand),
+        )
         setStationTerminalState(station.id, {
           sessionId: terminalSessionId,
           stateRaw: 'running',
+          executionState: launchesCliAgent ? 'working' : 'unknown',
           unreadCount: 0,
           shell: response.shell ?? null,
           cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
           resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
         })
-        if (resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)) {
+        if (launchesCliAgent) {
+          reportAgentExecutionState.intent(station.id, 'launch', Date.now())
           protectStationAgentSession(station.id, terminalSessionId)
         }
 
@@ -4171,6 +4293,7 @@ export function useShellTerminalController({
       ensureTerminalSessionVisible,
       locale,
       protectStationAgentSession,
+      reportAgentExecutionState,
       requestTerminalKill,
       resetStationTerminalOutput,
       resolveWorkspaceRoot,
@@ -4238,6 +4361,9 @@ export function useShellTerminalController({
         return false
       }
 
+      setStationTerminalState(stationId, { executionState: 'working' })
+      reportAgentExecutionState.intent(stationId, 'launch', Date.now())
+
       protectStationAgentSession(stationId, sessionId)
 
       if (options?.bindGtoSessionId) {
@@ -4260,6 +4386,7 @@ export function useShellTerminalController({
       ensureTerminalSessionVisible,
       focusStationTerminal,
       protectStationAgentSession,
+      reportAgentExecutionState,
       runStationTerminalCommand,
       setStationTerminalState,
       setActiveStationId,
@@ -4353,6 +4480,8 @@ export function useShellTerminalController({
       if (!launchedInSession) {
         return
       }
+      setStationTerminalState(stationId, { executionState: 'working' })
+      reportAgentExecutionState.intent(stationId, 'launch', Date.now())
       protectStationAgentSession(stationId, currentSessionId)
       await focusStationTerminal(stationId)
     },
@@ -4361,6 +4490,7 @@ export function useShellTerminalController({
       inspectStationSessionProcesses,
       launchToolProfileForStation,
       protectStationAgentSession,
+      reportAgentExecutionState,
       resetStationTerminalToAgentWorkdir,
       runStationTerminalCommand,
       setActiveStationId,
@@ -4961,6 +5091,11 @@ export function useShellTerminalController({
     ensureStationTerminalSessionInFlightRef.current = {}
     stationToolLaunchSeqRef.current = {}
     renderedScreenReportRevisionRef.current.clear()
+    Object.values(agentExecutionConfirmationTimerRef.current).forEach((timer) => {
+      window.clearTimeout(timer)
+    })
+    agentExecutionConfirmationTimerRef.current = {}
+    agentExecutionTrackerRef.current = {}
     terminalSessionVisibilityRef.current = {}
     terminalChunkDecoderBySessionRef.current = {}
     stationTerminalInputControllerRef.current?.dispose()

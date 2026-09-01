@@ -5,6 +5,7 @@ import {
   handleStationCardPrimaryLaunch,
   resolveStationCardLaunchIcon,
   resolveStationCardLaunchState,
+  resolveStationCardStatusMeta,
 } from '../src/features/workspace-hub/station-card-header-model.js'
 
 test('primary launch starts the current cli agent when the card has no live session', () => {
@@ -70,10 +71,9 @@ test('primary launch still starts cli agent when the terminal session exists but
   assert.deepEqual(calls, ['select:agent-03', 'focus', 'launch:agent-03'])
 })
 
-test('header identity meta exposes name, role, and tool in grouped order while launch state follows actual agent runtime', () => {
-  assert.deepEqual(buildStationCardIdentityMeta('Alpha', '产品角色', 'codex cli'), [
+test('header identity meta exposes the name and tool while launch state follows actual agent runtime', () => {
+  assert.deepEqual(buildStationCardIdentityMeta('Alpha', 'codex cli'), [
     { kind: 'name', label: 'Alpha' },
-    { kind: 'role', label: '产品角色' },
     { kind: 'tool', label: 'codex cli' },
   ])
   assert.equal(resolveStationCardLaunchState({ sessionId: 'ts_003', stateRaw: null, agentRunning: true }), 'live')
@@ -82,8 +82,35 @@ test('header identity meta exposes name, role, and tool in grouped order while l
   assert.equal(resolveStationCardLaunchState({ sessionId: null, stateRaw: null, agentRunning: false }), 'idle')
 })
 
-test('launch icon switches to a softer circle indicator only while the agent is live', () => {
+test('launch icon becomes a focus action while the agent is live', () => {
   assert.equal(resolveStationCardLaunchIcon('idle'), 'play')
-  assert.equal(resolveStationCardLaunchIcon('live'), 'circle')
+  assert.equal(resolveStationCardLaunchIcon('live'), 'focus')
   assert.equal(resolveStationCardLaunchIcon('alert'), 'play')
+})
+
+test('semantic execution state takes precedence over an otherwise live terminal session', () => {
+  assert.equal(
+    resolveStationCardStatusMeta({
+      sessionId: 'ts_004',
+      stateRaw: 'running',
+      executionState: 'working',
+    }).key,
+    'busy',
+  )
+  assert.equal(
+    resolveStationCardStatusMeta({
+      sessionId: 'ts_004',
+      stateRaw: 'running',
+      executionState: 'idle',
+    }).key,
+    'ready',
+  )
+  assert.equal(
+    resolveStationCardStatusMeta({
+      sessionId: 'ts_004',
+      stateRaw: 'failed',
+      executionState: 'working',
+    }).key,
+    'errored',
+  )
 })

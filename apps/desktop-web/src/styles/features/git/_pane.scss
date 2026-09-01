@@ -1379,6 +1379,65 @@
   }
 }
 
+/* === Operations pane (left sidebar): seamless, no card wrapping ===
+   .git-pane is shared with the main-pane history view, which keeps its card.
+   The left sidebar should blend into the shell left pane the same way the file
+   tree does, so .git-ops-pane strips the card surface (border, radius, gradient
+   background, inset shadow) and flattens the toolbar header. .git-history-pane
+   is intentionally left untouched. */
+.git-ops-pane {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.git-ops-pane .git-pane__header {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: #{rem(6)} var(--vb-space-sm);
+}
+
+/* Seamless list surface: flatten the inner cards (repo list, file list,
+   directory groups) so rows flow edge-to-edge with full-width hover/selection,
+   matching the file tree. Drop the section-content gutter; keep an inline inset
+   on the toolbar, section headers, and commit form aligned with row content. */
+.git-ops-pane .git-repo-list,
+.git-ops-pane .git-file-list,
+.git-ops-pane .git-directory-group {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.git-ops-pane .git-directory-group__header {
+  background: transparent;
+}
+
+.git-ops-pane .git-section__content {
+  padding: 0 0 var(--vb-space-sm);
+}
+
+.git-ops-pane .git-section-header {
+  padding: var(--vb-space-sm);
+}
+
+.git-ops-pane .git-commit-form {
+  padding-inline: var(--vb-space-sm);
+}
+
+:root[data-vb-native-vibrancy='true'] {
+  .git-ops-pane {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .git-ops-pane .git-pane__header {
+    background: transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .git-file-group-row,
   .git-file-row,
@@ -1635,27 +1694,24 @@
 
 .git-commit-form__input {
   width: 100%;
-  min-height: #{rem(48)};
-  max-height: #{rem(128)};
-  padding: #{rem(7)} #{rem(10)};
-  border: var(--vb-border-width) solid var(--vb-input-border);
+  min-height: #{rem(56)};
+  max-height: #{rem(160)};
+  padding: #{rem(8)} var(--vb-space-sm);
+  border: 0;
   border-radius: var(--vb-radius-md);
-  background: color-mix(in srgb, var(--vb-input-bg) 78%, var(--vb-surface));
+  background: color-mix(in srgb, var(--vb-surface-muted) 64%, transparent);
   color: var(--vb-text);
-  font-size: #{rem(11)};
+  font-size: var(--vb-git-font-sm);
   font-family: inherit;
   line-height: 1.5;
   resize: vertical;
   outline: none;
   overflow-wrap: anywhere;
-  transition:
-    border-color 150ms var(--vb-ease-out),
-    box-shadow 150ms var(--vb-ease-out);
+  transition: background-color 150ms var(--vb-ease-out);
 }
 
 .git-commit-form__input:focus {
-  border-color: var(--vb-input-focus-border);
-  box-shadow: 0 0 0 #{rem(3)} var(--vb-accent-light);
+  background: color-mix(in srgb, var(--vb-surface-muted) 82%, transparent);
 }
 
 .git-commit-form__input::placeholder {
@@ -1674,7 +1730,7 @@
   display: flex;
   align-items: center;
   gap: #{rem(4)};
-  font-size: #{rem(10)};
+  font-size: var(--vb-git-font-2xs);
   color: var(--vb-text-muted);
   cursor: pointer;
   user-select: none;
@@ -1692,7 +1748,7 @@
 }
 
 .git-commit-form__char-count {
-  font-size: #{rem(10)};
+  font-size: var(--vb-git-font-2xs);
   font-family: var(--vb-font-mono);
   color: var(--vb-text-subtle);
 
@@ -1702,13 +1758,24 @@
 }
 
 .git-commit-form__shortcut-hint {
-  font-size: #{rem(10)};
+  font-size: var(--vb-git-font-2xs);
   color: var(--vb-text-subtle);
 }
 
 .git-commit-form__actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: stretch;
+}
+
+.git-commit-form__actions .git-icon-btn {
+  width: 100%;
+  height: auto;
+  min-height: #{rem(34)};
+  justify-content: center;
+  gap: var(--vb-space-xs);
+  padding: var(--vb-space-xs) var(--vb-space-sm);
+  font-size: var(--vb-git-font-sm);
+  font-weight: 600;
 }
 
 /* === Branch Form === */

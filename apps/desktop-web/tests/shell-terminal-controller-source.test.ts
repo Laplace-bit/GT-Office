@@ -87,7 +87,7 @@ test('shell terminal controller can present a cached terminal document synchrono
   )
   assert.match(
     controllerSource,
-    /cachedDocument\?\.stationTerminals\[station\.id\]/,
+    /const cached = cachedDocument\.stationTerminals\[station\.id\]/,
     'station seed path must prefer cached live runtimes over fresh idle shells',
   )
 })
@@ -115,4 +115,47 @@ test('terminal and agent launches immediately replace stale output and activate 
   assert.match(launchProfileBlock, /setStationTerminalState\(station\.id, \{\s*stateRaw: 'launching'/)
   assert.match(launchProfileBlock, /resetStationTerminalOutput\(station\.id, t\(locale, 'system\.terminalLaunching'\)\)/)
   assert.match(launchProfileBlock, /loginShell: false/)
+})
+
+test('CLI launch presents working before the first rendered terminal snapshot arrives', () => {
+  const launchStart = controllerSource.indexOf('const launchToolProfileForStation = useCallback')
+  const launchEnd = controllerSource.indexOf('const launchCliInStationTerminal', launchStart)
+  const launchProfileBlock = controllerSource.slice(launchStart, launchEnd)
+  const sessionBindingIndex = launchProfileBlock.indexOf('sessionId: terminalSessionId')
+  const liveSessionStart = launchProfileBlock.lastIndexOf('setStationTerminalState(station.id, {', sessionBindingIndex)
+  const liveSessionEnd = launchProfileBlock.indexOf('\n        })', sessionBindingIndex)
+  const liveSessionBlock = launchProfileBlock.slice(liveSessionStart, liveSessionEnd)
+
+  assert.notEqual(launchStart, -1, 'agent profile launch path should exist')
+  assert.notEqual(launchEnd, -1, 'agent profile launch path should have a stable boundary')
+  assert.notEqual(sessionBindingIndex, -1, 'agent profile launch must bind its terminal session')
+  assert.notEqual(liveSessionBlock, '', 'CLI launch must publish its terminal session')
+  assert.match(
+    liveSessionBlock,
+    /executionState: launchesCliAgent \? 'working' : 'unknown'/,
+    'a live CLI Agent must not fall back to the generic connected state before screen detection',
+  )
+})
+
+test('agent execution state is driven by every active terminal output event and submitted turn', () => {
+  assert.match(
+    controllerSource,
+    /reportAgentExecutionState\.output\(stationId, chunk, observedAtMs\)/,
+    'all terminal output appended to a station must enter the execution state machine',
+  )
+  assert.match(
+    controllerSource,
+    /appendStationTerminalOutput\(stationId, text, payload\.tsMs\)/,
+    'live output events must preserve their observation timestamp',
+  )
+  assert.match(
+    controllerSource,
+    /reportAgentExecutionState\.intent\(targetStationId, 'input', Date\.now\(\)\)/,
+    'submitted interactive input must immediately mark the agent as working',
+  )
+  assert.match(
+    controllerSource,
+    /reportAgentExecutionState\.intent\(stationId, 'launch', Date\.now\(\)\)/,
+    'CLI launch must start a new execution observation epoch',
+  )
 })

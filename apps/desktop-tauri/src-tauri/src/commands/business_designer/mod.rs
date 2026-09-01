@@ -2790,15 +2790,13 @@ fn validate_design(
                     ));
                 }
             }
-            "text" => {
-                if payload_string(&block.payload, "markdown").is_none() {
-                    diagnostics.push(diagnostic(
-                        "text_markdown_empty",
-                        "warning",
-                        "Text block should include markdown",
-                        Some(format!("blocks/{}.json", block.id)),
-                    ));
-                }
+            "text" if payload_string(&block.payload, "markdown").is_none() => {
+                diagnostics.push(diagnostic(
+                    "text_markdown_empty",
+                    "warning",
+                    "Text block should include markdown",
+                    Some(format!("blocks/{}.json", block.id)),
+                ));
             }
             _ => {}
         }
