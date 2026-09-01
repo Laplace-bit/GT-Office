@@ -424,7 +424,6 @@ fn task_wait_reply_candidate_is_suppressed_after_explicit_reply() {
             workspace_id: "ws".to_string(),
             agent_id: "agent-1".to_string(),
             station_id: "agent-1".to_string(),
-            role_key: None,
             session_id: "session-agent-1".to_string(),
             tool_kind: AgentToolKind::default(),
             resolved_cwd: None,

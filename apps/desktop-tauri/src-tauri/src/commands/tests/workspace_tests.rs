@@ -5,9 +5,7 @@ use crate::commands::workspace::{
     build_workspace_switch_response, close_workspace_resources, workspace_reset_state_with_storage,
 };
 use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
-use gt_agent::{
-    AgentRepository, AgentScope, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WORKSPACE_ID,
-};
+use gt_agent::{AgentRepository, AgentScope, AgentState};
 use gt_ai_config::{
     AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
     AiConfigSnapshot, ClaudeConfigSnapshot, ClaudeSnapshot, CodexConfigSnapshot, CodexSnapshot,
@@ -261,30 +259,10 @@ impl WorkspaceResetFixture {
             .to_string();
 
         agent_repo
-            .seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
-            .expect("seed global defaults");
-        agent_repo
-            .seed_defaults(&workspace_id)
-            .expect("seed target defaults");
-        agent_repo
-            .seed_defaults(&other_workspace_id)
-            .expect("seed other defaults");
-
-        {
-            let conn = storage.open_connection().expect("open sqlite connection");
-            conn.execute(
-                "DELETE FROM org_departments WHERE workspace_id = ?1 AND id = ?2",
-                [workspace_id.as_str(), "dept_analysis"],
-            )
-            .expect("delete target department to make reseed meaningful");
-        }
-
-        agent_repo
             .create_agent(gt_agent::CreateAgentInput {
                 workspace_id: workspace_id.clone(),
                 agent_id: Some("agent-alpha".to_string()),
                 name: "Alpha".to_string(),
-                role_id: "global_role_orchestrator".to_string(),
                 tool: "codex".to_string(),
                 workdir: Some(".gtoffice/alpha".to_string()),
                 custom_workdir: false,
@@ -300,7 +278,6 @@ impl WorkspaceResetFixture {
                 workspace_id: other_workspace_id.clone(),
                 agent_id: Some("agent-beta".to_string()),
                 name: "Beta".to_string(),
-                role_id: "global_role_orchestrator".to_string(),
                 tool: "codex".to_string(),
                 workdir: Some(".gtoffice/beta".to_string()),
                 custom_workdir: false,
@@ -533,14 +510,6 @@ fn workspace_reset_removes_workspace_rows_and_reseeds_defaults() {
     );
     assert_eq!(
         fixture
-            .agent_repo
-            .list_departments(&fixture.workspace_id)
-            .expect("list target departments before reset")
-            .len(),
-        DEFAULT_DEPARTMENTS.len() - 1
-    );
-    assert_eq!(
-        fixture
             .ai_repo
             .list_saved_claude_providers(&fixture.workspace_id)
             .expect("list target ai config")
@@ -627,26 +596,6 @@ fn workspace_reset_removes_workspace_rows_and_reseeds_defaults() {
         .list_agents(&fixture.workspace_id)
         .expect("list target agents after reset")
         .is_empty());
-    assert!(fixture
-        .agent_repo
-        .list_departments(&fixture.workspace_id)
-        .expect("list target departments after reset")
-        .iter()
-        .any(|department| department.id == "dept_analysis"));
-    assert_eq!(
-        fixture
-            .agent_repo
-            .list_departments(&fixture.workspace_id)
-            .expect("list target departments after reset")
-            .len(),
-        DEFAULT_DEPARTMENTS.len()
-    );
-    assert!(fixture
-        .agent_repo
-        .list_roles(&fixture.workspace_id)
-        .expect("list target roles after reset")
-        .iter()
-        .any(|role| role.id == "global_role_orchestrator"));
     assert!(fixture
         .ai_repo
         .list_saved_claude_providers(&fixture.workspace_id)

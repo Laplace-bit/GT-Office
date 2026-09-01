@@ -443,10 +443,11 @@ fn pty_provider_does_not_inherit_parent_env_noise() {
         )
         .expect("write env probe");
 
-    let expected = format!(
-        "__GTO_ENV_PROBE____CLEAN__|{}|/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        home
-    );
+    let expected = format!("__GTO_ENV_PROBE____CLEAN__|{}", home);
+    // Interactive shells may source rc files that mutate PATH (e.g. prepending
+    // ~/.local/bin), so only require the minimal bootstrap PATH to survive
+    // rather than asserting an exact value.
+    let bootstrap_path = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
     let mut observed_output = String::new();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while std::time::Instant::now() < deadline {
@@ -466,7 +467,11 @@ fn pty_provider_does_not_inherit_parent_env_noise() {
 
     assert!(
         observed_output.contains(&expected),
-        "PTY shell should not inherit non-whitelist parent env and should use the minimal bootstrap PATH (expected `{expected}`), got: {observed_output}"
+        "PTY shell should not inherit non-whitelist parent env (expected `{expected}`), got: {observed_output}"
+    );
+    assert!(
+        observed_output.contains(bootstrap_path),
+        "PTY shell should use the minimal bootstrap PATH, got: {observed_output}"
     );
     assert!(
         !observed_output.contains("should-not-leak"),

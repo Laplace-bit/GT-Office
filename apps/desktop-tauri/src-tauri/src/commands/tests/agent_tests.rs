@@ -14,11 +14,10 @@ use crate::commands::agent::{
         apply_direct_agent_binding_cleanup, collect_direct_agent_binding_dependencies,
         DirectBindingCleanupMode,
     },
-    normalize_relative_workdir, parse_agent_state, parse_role_scope, parse_role_status,
-    read_prompt_file, resolve_agent_tool, resolve_prompt_file_name,
-    resolve_update_agent_prompt_file_name, resolve_update_agent_tool, role_scope_workspace_id,
-    seed_agent_defaults, should_write_prompt_file_on_update, write_prompt_file, AgentCreateRequest,
-    AgentDeleteRequest, AgentPromptReadRequest, AgentUpdateRequest,
+    normalize_relative_workdir, parse_agent_state, read_prompt_file, resolve_agent_tool,
+    resolve_prompt_file_name, resolve_update_agent_prompt_file_name, resolve_update_agent_tool,
+    should_write_prompt_file_on_update, write_prompt_file, AgentCreateRequest, AgentDeleteRequest,
+    AgentPromptReadRequest, AgentUpdateRequest,
 };
 
 struct TempDir {
@@ -49,7 +48,6 @@ struct AgentCommandFixture {
     repo: SqliteAgentRepository,
     workspace_id: String,
     workspace_root: PathBuf,
-    role_id: String,
 }
 
 impl AgentCommandFixture {
@@ -70,14 +68,6 @@ impl AgentCommandFixture {
                 .expect("create test storage"),
         );
         repo.ensure_schema().expect("ensure agent schema");
-        seed_agent_defaults(&repo, &workspace_id).expect("seed agent defaults");
-        let role_id = repo
-            .list_roles(&workspace_id)
-            .expect("list roles")
-            .into_iter()
-            .find(|role| role.role_key == "generator")
-            .expect("generator role")
-            .id;
 
         Self {
             _temp_dir: temp_dir,
@@ -85,7 +75,6 @@ impl AgentCommandFixture {
             repo,
             workspace_id,
             workspace_root,
-            role_id,
         }
     }
 
@@ -94,7 +83,6 @@ impl AgentCommandFixture {
             workspace_id: self.workspace_id.clone(),
             agent_id: None,
             name: name.to_string(),
-            role_id: self.role_id.clone(),
             tool: Some("codex".to_string()),
             workdir: Some(".".to_string()),
             custom_workdir: Some(false),
@@ -251,7 +239,6 @@ fn agent_update_rejects_custom_workdir_symlink_outside_workspace_without_prompt(
             workspace_id: fixture.workspace_id.clone(),
             agent_id: agent_id.clone(),
             name: "Update Outside Link Agent".to_string(),
-            role_id: fixture.role_id.clone(),
             tool: Some("codex".to_string()),
             workdir: Some(".gtoffice/outside-link".to_string()),
             custom_workdir: Some(true),
@@ -306,7 +293,6 @@ fn agent_update_moves_prompt_file_and_prompt_read_returns_latest_content() {
             workspace_id: fixture.workspace_id.clone(),
             agent_id: agent_id.clone(),
             name: "Prompt Update Agent".to_string(),
-            role_id: fixture.role_id.clone(),
             tool: Some("claude".to_string()),
             workdir: Some(".gtoffice/research".to_string()),
             custom_workdir: Some(true),
@@ -403,43 +389,6 @@ fn existing_agent_helpers_still_normalize_defaults() {
     assert_eq!(
         resolve_agent_tool(Some("Claude Code".to_string())),
         "claude"
-    );
-    assert_eq!(parse_role_scope(Some("global")).as_str(), "global");
-    assert_eq!(parse_role_scope(Some(" global ")).as_str(), "global");
-    assert_eq!(
-        role_scope_workspace_id(&parse_role_scope(None), "ws-1"),
-        "ws-1"
-    );
-}
-
-#[test]
-fn parses_role_status_values_for_cli_surface() {
-    assert_eq!(parse_role_status(None).unwrap().as_str(), "active");
-    assert_eq!(
-        parse_role_status(Some(" active ".to_string()))
-            .unwrap()
-            .as_str(),
-        "active"
-    );
-    assert_eq!(
-        parse_role_status(Some("deprecated".to_string()))
-            .unwrap()
-            .as_str(),
-        "deprecated"
-    );
-    assert_eq!(
-        parse_role_status(Some("disabled".to_string()))
-            .unwrap()
-            .as_str(),
-        "disabled"
-    );
-}
-
-#[test]
-fn rejects_unsupported_role_status_values() {
-    assert_eq!(
-        parse_role_status(Some("archived".to_string())).unwrap_err(),
-        "AGENT_ROLE_STATUS_INVALID: archived"
     );
 }
 
@@ -629,7 +578,6 @@ fn update_preserves_existing_prompt_file_override_through_prompt_read_and_write(
         id: "agent-1".to_string(),
         workspace_id: "ws-1".to_string(),
         name: "Agent Alpha".to_string(),
-        role_id: "role-1".to_string(),
         tool: "Claude Code".to_string(),
         workdir: Some(workdir.to_string()),
         custom_workdir: false,

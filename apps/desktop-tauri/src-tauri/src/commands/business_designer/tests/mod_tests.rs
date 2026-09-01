@@ -1222,7 +1222,6 @@ fn recover_agent_patch_from_task_reads_latest_reply_json_patch() {
             workspace_id: "ws-1".to_string(),
             agent_id: "manager".to_string(),
             station_id: "manager".to_string(),
-            role_key: None,
             session_id: "ts-manager".to_string(),
             tool_kind: AgentToolKind::default(),
             resolved_cwd: None,

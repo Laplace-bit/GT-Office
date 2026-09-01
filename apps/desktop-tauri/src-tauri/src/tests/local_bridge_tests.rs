@@ -1,5 +1,4 @@
 use super::*;
-use gt_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentScope, AgentState, RoleStatus};
 use gt_task::{DispatchSender, DispatchSenderType};
 use std::{env, fs};
 use uuid::Uuid;
@@ -35,75 +34,8 @@ fn bridge_response_serializes_stable_failure_envelope() {
 }
 
 #[test]
-fn resolve_bootstrap_role_key_prefers_agent_role_mapping() {
-    let agents = vec![AgentProfile {
-        id: "agent_alpha".to_string(),
-        workspace_id: "ws-1".to_string(),
-        name: "Alpha".to_string(),
-        role_id: "role_analyst".to_string(),
-        tool: "claude".to_string(),
-        workdir: Some(".gtoffice/alpha".to_string()),
-        custom_workdir: false,
-        scope: AgentScope::Station,
-        state: AgentState::Ready,
-        employee_no: None,
-        policy_snapshot_id: None,
-        prompt_file_name: Some("CLAUDE.md".to_string()),
-        prompt_file_relative_path: Some(".gtoffice/alpha/CLAUDE.md".to_string()),
-        launch_command: None,
-        order_index: 0,
-        created_at_ms: 1,
-        updated_at_ms: 1,
-    }];
-    let roles = vec![AgentRole {
-        id: "role_analyst".to_string(),
-        workspace_id: "ws-1".to_string(),
-        role_key: "analyst".to_string(),
-        role_name: "Analyst".to_string(),
-        department_id: "dept_analysis".to_string(),
-        scope: AgentRoleScope::Workspace,
-        charter_path: None,
-        policy_json: Some("{}".to_string()),
-        version: 1,
-        status: RoleStatus::Active,
-        is_system: false,
-        created_at_ms: 1,
-        updated_at_ms: 1,
-    }];
-
-    assert_eq!(
-        resolve_bootstrap_role_key("agent_alpha", &agents, &roles),
-        Some("analyst".to_string())
-    );
-}
-
-#[test]
-fn resolve_bootstrap_role_key_falls_back_to_matching_role_key() {
-    let roles = vec![AgentRole {
-        id: "role_generator".to_string(),
-        workspace_id: "ws-1".to_string(),
-        role_key: "generator".to_string(),
-        role_name: "Generator".to_string(),
-        department_id: "dept_generation".to_string(),
-        scope: AgentRoleScope::Global,
-        charter_path: None,
-        policy_json: Some("{}".to_string()),
-        version: 1,
-        status: RoleStatus::Active,
-        is_system: true,
-        created_at_ms: 1,
-        updated_at_ms: 1,
-    }];
-
-    assert_eq!(
-        resolve_bootstrap_role_key("generator", &[], &roles),
-        Some("generator".to_string())
-    );
-}
-
-#[test]
-fn build_agent_terminal_env_includes_role_key_when_present() {
-    let env = build_agent_terminal_env("ws-1", "agent_alpha", Some("analyst"), "station-1");
+fn build_agent_terminal_env_sets_gto_context_variables() {
+    let env = build_agent_terminal_env("ws-1", "agent_alpha", "station-1");
 
     assert_eq!(
         env.get("GTO_WORKSPACE_ID").map(String::as_str),
@@ -113,22 +45,9 @@ fn build_agent_terminal_env_includes_role_key_when_present() {
         env.get("GTO_AGENT_ID").map(String::as_str),
         Some("agent_alpha")
     );
-    assert_eq!(env.get("GTO_ROLE_KEY").map(String::as_str), Some("analyst"));
     assert_eq!(
         env.get("GTO_STATION_ID").map(String::as_str),
         Some("station-1")
-    );
-}
-
-#[test]
-fn require_bootstrap_role_key_rejects_missing_role_key() {
-    let error = require_bootstrap_role_key("agent_unknown", None)
-        .expect_err("missing role key should fail");
-
-    assert_eq!(error.code, "LOCAL_BRIDGE_INVALID_PARAMS");
-    assert_eq!(
-        error.message,
-        "bootstrap roleKey is required for target: agent_unknown"
     );
 }
 
@@ -157,7 +76,6 @@ fn list_task_threads_returns_task_summaries_from_task_service() {
             workspace_id: "ws-1".to_string(),
             agent_id: "manager".to_string(),
             station_id: "manager".to_string(),
-            role_key: None,
             session_id: "ts-manager".to_string(),
             tool_kind: AgentToolKind::default(),
             resolved_cwd: None,
@@ -171,7 +89,6 @@ fn list_task_threads_returns_task_summaries_from_task_service() {
             workspace_id: "ws-1".to_string(),
             agent_id: "worker".to_string(),
             station_id: "worker".to_string(),
-            role_key: None,
             session_id: "ts-worker".to_string(),
             tool_kind: AgentToolKind::default(),
             resolved_cwd: None,
@@ -227,7 +144,6 @@ fn get_task_thread_returns_full_thread_payload() {
             workspace_id: "ws-1".to_string(),
             agent_id: "manager".to_string(),
             station_id: "manager".to_string(),
-            role_key: None,
             session_id: "ts-manager".to_string(),
             tool_kind: AgentToolKind::default(),
             resolved_cwd: None,
@@ -241,7 +157,6 @@ fn get_task_thread_returns_full_thread_payload() {
             workspace_id: "ws-1".to_string(),
             agent_id: "worker".to_string(),
             station_id: "worker".to_string(),
-            role_key: None,
             session_id: "ts-worker".to_string(),
             tool_kind: AgentToolKind::default(),
             resolved_cwd: None,
@@ -312,31 +227,4 @@ fn map_command_error_falls_back_to_bridge_internal_for_unstructured_errors() {
     assert_eq!(payload.code, "LOCAL_BRIDGE_INTERNAL");
     assert_eq!(payload.message, "database unavailable");
     assert_eq!(payload.details, None);
-}
-
-#[test]
-fn seed_agent_defaults_makes_global_roles_visible_for_workspace_listing() {
-    let db_path = std::env::temp_dir().join(format!(
-        "mcp-bridge-seed-agent-defaults-{}.db",
-        uuid::Uuid::new_v4()
-    ));
-    let storage = SqliteStorage::new(&db_path).expect("create sqlite storage");
-    let repo = SqliteAgentRepository::new(storage);
-    repo.ensure_schema().expect("ensure schema");
-
-    let before = repo.list_roles("ws_alpha").expect("list roles before seed");
-    assert!(
-        !before.iter().any(|role| role.role_key == "evaluator"),
-        "fresh database should not expose built-in global roles before seeding"
-    );
-
-    seed_agent_defaults(&repo, "ws_alpha").expect("seed defaults");
-
-    let after = repo.list_roles("ws_alpha").expect("list roles after seed");
-    assert!(
-        after.iter().any(|role| {
-            role.workspace_id == GLOBAL_ROLE_WORKSPACE_ID && role.role_key == "evaluator"
-        }),
-        "workspace role listing should include seeded global built-in roles"
-    );
 }

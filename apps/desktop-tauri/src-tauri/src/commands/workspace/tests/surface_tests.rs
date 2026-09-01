@@ -50,7 +50,6 @@ fn detached_window_url_encodes_query_payload_as_url_safe_base64() {
     let station = SurfaceDetachedStationPayload {
         station_id: "agent-1".to_string(),
         name: "Analyst".to_string(),
-        role: "analyst".to_string(),
         tool: "codex".to_string(),
         agent_workdir_rel: ".gtoffice/agent-1".to_string(),
         role_workdir_rel: Some(".gtoffice/roles/analyst".to_string()),

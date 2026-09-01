@@ -483,12 +483,8 @@ fn completeness_gap_serializes_with_new_layer_severity() {
 fn derived_edge_relations_include_navigates_and_participates() {
     use super::super::gap_rules::DERIVED_EDGE_RELATIONS;
     use super::super::DesignerEdgeRelation;
-    assert!(DERIVED_EDGE_RELATIONS
-        .iter()
-        .any(|r| *r == DesignerEdgeRelation::NavigatesTo));
-    assert!(DERIVED_EDGE_RELATIONS
-        .iter()
-        .any(|r| *r == DesignerEdgeRelation::ParticipatesIn));
+    assert!(DERIVED_EDGE_RELATIONS.contains(&DesignerEdgeRelation::NavigatesTo));
+    assert!(DERIVED_EDGE_RELATIONS.contains(&DesignerEdgeRelation::ParticipatesIn));
 }
 
 #[test]
