@@ -58,9 +58,10 @@ impl SessionRegistry {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(&db_path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=2000;",
-        )?;
+        // busy_timeout must be active before any pragma that can take a write
+        // lock (journal_mode=WAL) so concurrent openers wait instead of failing.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         let registry = Self {
             db_path,
             conn: Mutex::new(conn),
