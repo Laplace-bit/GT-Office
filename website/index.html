@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GT Office — AI Agent Desktop Workspace for Claude Code & Codex CLI</title>
+  <meta name="description" content="GT Office is a cross-platform AI agent desktop app that turns Claude Code, Codex CLI and Gemini CLI into coordinated teammates — persistent workspaces, agent-to-agent tasks, and Telegram / WeChat / Feishu channels. Built with Rust, React and Tauri.">
+  <link rel="canonical" href="https://laplace-bit.github.io/GT-Office/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="GT Office">
+  <meta property="og:title" content="GT Office — Every AI agent. One quiet desk.">
+  <meta property="og:description" content="A native multi-agent workspace for Claude Code, Codex CLI and Gemini CLI. Persistent sessions, agent-to-agent tasks, channels to your phone.">
+  <meta property="og:url" content="https://laplace-bit.github.io/GT-Office/">
+  <meta property="og:image" content="https://laplace-bit.github.io/GT-Office/assets/agents-view.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="GT Office — Every AI agent. One quiet desk.">
+  <meta name="twitter:description" content="Native multi-agent desktop workspace for Claude Code, Codex CLI and Gemini CLI.">
+  <meta name="twitter:image" content="https://laplace-bit.github.io/GT-Office/assets/agents-view.png">
+  <meta name="theme-color" content="#F6F1E7">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "GT Office",
+    "operatingSystem": "macOS, Windows, Linux",
+    "applicationCategory": "DeveloperApplication",
+    "description": "Cross-platform AI agent desktop workspace for Claude Code, Codex CLI and Gemini CLI. Rust + React + Tauri.",
+    "softwareVersion": "0.7.6",
+    "license": "https://opensource.org/licenses/Apache-2.0",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "url": "https://laplace-bit.github.io/GT-Office/",
+    "downloadUrl": "https://github.com/Laplace-bit/GT-Office/releases"
+  }
+  </script>
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #F6F1E7;
+      --paper-2: #FBF8F2;
+      --ink: #17130D;
+      --ink-soft: #4A443A;
+      --muted: #8A8272;
+      --rust: #BC4A1E;
+      --line: rgba(23, 19, 13, 0.08);
+      --card: rgba(255, 255, 255, 0.62);
+      --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+      --display: "Clash Display", "Satoshi", sans-serif;
+      --body: "Satoshi", "Clash Display", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--body);
+      font-size: 17px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    ::selection { background: var(--rust); color: var(--paper-2); }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      pointer-events: none;
+      opacity: 0.05;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+    }
+    /* ---- fluid island nav (fixed; backdrop-blur only on fixed elements) ---- */
+    .nav {
+      position: fixed; top: 18px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      display: flex; align-items: center; gap: 4px;
+      padding: 8px 8px 8px 18px;
+      border-radius: 999px;
+      background: rgba(251, 248, 242, 0.72);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 1px 2px rgba(23,19,13,0.05), 0 12px 40px rgba(23,19,13,0.09);
+      border: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    .nav .brand {
+      font-family: var(--display); font-weight: 600; font-size: 15px;
+      display: flex; align-items: center; gap: 9px;
+      margin-right: 14px;
+      text-decoration: none; color: var(--ink);
+    }
+    .nav .brand .dot {
+      width: 9px; height: 9px; border-radius: 3px;
+      background: var(--rust);
+      box-shadow: 0 0 0 3px rgba(188,74,30,0.14);
+    }
+    .nav a.link {
+      font-size: 14px; font-weight: 500; color: var(--ink-soft);
+      text-decoration: none; padding: 7px 13px; border-radius: 999px;
+      transition: color 0.35s var(--ease-spring), background-color 0.35s var(--ease-spring);
+    }
+    .nav a.link:hover { color: var(--ink); background: rgba(23,19,13,0.05); }
+    .nav .gh {
+      margin-left: 8px;
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 700;
+      color: var(--paper-2); background: var(--ink);
+      text-decoration: none; padding: 9px 16px 9px 14px; border-radius: 999px;
+      transition: transform 0.4s var(--ease-spring), background-color 0.4s var(--ease-spring);
+    }
+    .nav .gh:hover { transform: translateY(-1px); background: #000; }
+    /* ---- reveal choreography: transform + opacity only ---- */
+    .rv {
+      opacity: 0; transform: translateY(26px);
+      transition: opacity 0.9s var(--ease-spring), transform 0.9s var(--ease-spring);
+      transition-delay: var(--d, 0ms);
+    }
+    .rv.in { opacity: 1; transform: translateY(0); }
+    @media (prefers-reduced-motion: reduce) {
+      .rv { opacity: 1; transform: none; transition: none; }
+      html { scroll-behavior: auto; }
+    }
+    /* ---- hero: one viewport, one argument ---- */
+    .hero {
+      min-height: 100dvh;
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      text-align: center;
+      padding: 140px 24px 80px;
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em;
+      color: var(--ink-soft);
+      border: 1px solid var(--line); background: var(--card);
+      padding: 8px 16px; border-radius: 999px; margin-bottom: 34px;
+    }
+    .eyebrow .pulse {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--rust);
+      animation: pulse 2.4s var(--ease-spring) infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    h1 {
+      font-family: var(--display); font-weight: 600;
+      font-size: clamp(44px, 7.2vw, 96px);
+      line-height: 1.02; letter-spacing: -0.025em;
+      max-width: 14ch;
+    }
+    h1 em { font-style: normal; color: var(--rust); }
+    .hero .sub {
+      margin-top: 26px; max-width: 56ch;
+      font-size: clamp(16px, 1.6vw, 19px);
+      color: var(--ink-soft);
+    }
+    .cta-row { margin-top: 40px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; }
+    /* button-in-button */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--body); font-weight: 700; font-size: 16px;
+      text-decoration: none; color: var(--paper-2); background: var(--ink);
+      padding: 8px 8px 8px 28px; border-radius: 999px;
+      transition: transform 0.45s var(--ease-spring), background-color 0.45s var(--ease-spring);
+    }
+    .btn .inner {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--rust);
+      transition: transform 0.45s var(--ease-spring);
+    }
+    .btn:hover { transform: translateY(-2px); background: #000; }
+    .btn:hover .inner { transform: rotate(-45deg) scale(1.06); }
+    .btn:active { transform: scale(0.98); }
+    .btn.ghost {
+      background: transparent; color: var(--ink);
+      border: 1px solid rgba(23,19,13,0.18); padding: 17px 28px;
+    }
+    .btn.ghost:hover { background: rgba(23,19,13,0.04); }
+    /* ---- double-bezel screenshot frame (C1 social currency) ---- */
+    .frame {
+      margin-top: 72px; width: min(1060px, 100%);
+      background: rgba(23,19,13,0.05);
+      border: 1px solid var(--line);
+      padding: 10px; border-radius: 2rem;
+      box-shadow: 0 2px 4px rgba(23,19,13,0.04), 0 30px 80px -20px rgba(23,19,13,0.22);
+    }
+    .frame .core {
+      background: var(--paper-2);
+      border-radius: calc(2rem - 10px);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+    .frame .bar { display: flex; align-items: center; gap: 7px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+    .frame .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgba(23,19,13,0.14); }
+    .frame .bar i:first-child { background: var(--rust); }
+    .frame .bar span { margin-left: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: 0.04em; }
+    .frame img { display: block; width: 100%; height: auto; }
+    /* ---- anchored numbers strip ---- */
+    .anchors { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--paper-2); }
+    .anchors .wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+    .anchors .cell { padding: 44px 28px; border-left: 1px solid var(--line); }
+    .anchors .cell:first-child { border-left: none; }
+    .anchors b {
+      display: block; font-family: var(--display); font-weight: 600;
+      font-size: clamp(30px, 3.4vw, 44px); letter-spacing: -0.02em; line-height: 1.1;
+    }
+    .anchors b sup { font-size: 0.45em; color: var(--rust); }
+    .anchors span { display: block; margin-top: 6px; font-size: 14px; color: var(--muted); }
+    /* ---- sections ---- */
+    section { padding: clamp(90px, 12vw, 150px) 24px; }
+    .shell { max-width: 1120px; margin: 0 auto; }
+    .kicker {
+      font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--rust); margin-bottom: 18px;
+    }
+    h2 {
+      font-family: var(--display); font-weight: 600;
+      font-size: clamp(32px, 4.4vw, 56px);
+      line-height: 1.08; letter-spacing: -0.02em; max-width: 20ch;
+    }
+    .lede { margin-top: 18px; max-width: 58ch; font-size: 18px; color: var(--ink-soft); }
+    /* ---- asymmetric bento ---- */
+    .bento { margin-top: 64px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 1.6rem; padding: 34px 30px;
+      transition: transform 0.5s var(--ease-spring), box-shadow 0.5s var(--ease-spring);
+    }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 24px 50px -24px rgba(23,19,13,0.25); }
+    .card.span3 { grid-column: span 3; }
+    .card.span4 { grid-column: span 4; }
+    .card.span2 { grid-column: span 2; }
+    .card .ic {
+      width: 46px; height: 46px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(188,74,30,0.1); color: var(--rust);
+      margin-bottom: 22px;
+    }
+    .card h3 { font-family: var(--display); font-weight: 600; font-size: 21px; letter-spacing: -0.01em; }
+    .card p { margin-top: 10px; font-size: 15px; color: var(--ink-soft); }
+    .card .shot { margin-top: 24px; border-radius: 0.9rem; overflow: hidden; border: 1px solid var(--line); }
+    .card .shot img { display: block; width: 100%; height: auto; }
+    .card code.pill {
+      font-family: var(--mono); font-size: 12.5px;
+      background: rgba(23,19,13,0.06); padding: 3px 9px; border-radius: 999px;
+    }
+    /* ---- gto terminal (trojan detail: the scroll path IS the argument) ---- */
+    .gto-grid { margin-top: 64px; display: grid; grid-template-columns: 5fr 7fr; gap: 56px; align-items: center; }
+    .term {
+      background: var(--ink); color: #EFE7D8;
+      border-radius: 1.4rem; padding: 26px 26px 30px;
+      box-shadow: 0 30px 70px -24px rgba(23,19,13,0.5);
+      font-family: var(--mono); font-size: 13.5px; line-height: 1.9;
+      overflow-x: auto;
+    }
+    .term .t-bar { display: flex; gap: 7px; margin-bottom: 18px; }
+    .term .t-bar i { width: 10px; height: 10px; border-radius: 50%; background: rgba(239,231,216,0.2); }
+    .term .c-rust { color: #E8845A; }
+    .term .c-dim { color: rgba(239,231,216,0.45); }
+    .term .c-ok { color: #A8C686; }
+    /* ---- quickstart ---- */
+    .qs { background: var(--ink); color: var(--paper); border-radius: 2.4rem; padding: clamp(48px, 7vw, 90px); }
+    .qs h2 { color: var(--paper); }
+    .qs .lede { color: rgba(246,241,231,0.65); }
+    .qs-row { margin-top: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .qs-card {
+      background: rgba(246,241,231,0.06);
+      border: 1px solid rgba(246,241,231,0.12);
+      border-radius: 1.2rem; padding: 28px;
+    }
+    .qs-card h4 { font-family: var(--display); font-size: 17px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+    .qs-card h4 b { color: #E8845A; font-family: var(--mono); font-weight: 500; font-size: 12px; background: rgba(188,74,30,0.18); padding: 3px 9px; border-radius: 999px; }
+    .qs-card pre { font-family: var(--mono); font-size: 13px; line-height: 2; color: rgba(246,241,231,0.85); overflow-x: auto; }
+    .qs-card .c-dim { color: rgba(246,241,231,0.4); }
+    /* ---- FAQ (SEO-rich text) ---- */
+    .faq { max-width: 760px; margin: 56px auto 0; }
+    .faq details { border-bottom: 1px solid var(--line); padding: 24px 4px; }
+    .faq summary {
+      cursor: pointer; list-style: none;
+      font-family: var(--display); font-weight: 500; font-size: 19px;
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after {
+      content: "+"; font-family: var(--mono); font-size: 20px; color: var(--rust);
+      transition: transform 0.4s var(--ease-spring);
+    }
+    .faq details[open] summary::after { transform: rotate(45deg); }
+    .faq p { margin-top: 14px; color: var(--ink-soft); font-size: 15.5px; max-width: 62ch; }
+    /* ---- footer ---- */
+    footer { border-top: 1px solid var(--line); padding: 70px 24px 90px; }
+    footer .shell { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; align-items: flex-end; }
+    footer .f-brand { font-family: var(--display); font-weight: 600; font-size: 22px; }
+    footer .f-brand span { color: var(--rust); }
+    footer p { margin-top: 10px; font-size: 14px; color: var(--muted); max-width: 40ch; }
+    footer nav { display: flex; gap: 26px; flex-wrap: wrap; }
+    footer nav a { color: var(--ink-soft); text-decoration: none; font-size: 14.5px; font-weight: 500; transition: color 0.3s var(--ease-spring); }
+    footer nav a:hover { color: var(--rust); }
+    /* ---- responsive: collapse to single column ---- */
+    @media (max-width: 880px) {
+      .anchors .wrap { grid-template-columns: repeat(2, 1fr); }
+      .anchors .cell { border-left: none; border-top: 1px solid var(--line); }
+      .anchors .cell:nth-child(-n+2) { border-top: none; }
+      .bento { grid-template-columns: 1fr; }
+      .card.span3, .card.span4, .card.span2 { grid-column: auto; }
+      .gto-grid { grid-template-columns: 1fr; gap: 32px; }
+      .qs-row { grid-template-columns: 1fr; }
+      .nav a.link { display: none; }
+    }
+  </style>
+</head>
+<body>
+<nav class="nav" aria-label="Main">
+  <a class="brand" href="#"><i class="dot"></i>GT&nbsp;Office</a>
+  <a class="link" href="#features">Features</a>
+  <a class="link" href="#gto">Agent Bus</a>
+  <a class="link" href="#install">Install</a>
+  <a class="link" href="#faq">FAQ</a>
+  <a class="gh" href="https://github.com/Laplace-bit/GT-Office" target="_blank" rel="noopener">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+    Star
+  </a>
+</nav>
+
+<header class="hero">
+  <p class="eyebrow rv"><i class="pulse"></i>v0.7.6 · macOS / Windows / Linux · Apache-2.0</p>
+  <h1 class="rv" style="--d:80ms">Every AI agent.<br><em>One quiet desk.</em></h1>
+  <p class="sub rv" style="--d:160ms">
+    GT Office turns Claude Code, Codex CLI and Gemini CLI into coordinated teammates —
+    native desktop workspaces, persistent sessions, agent-to-agent tasks, and a channel
+    to your phone. No wrapper. No capability loss.
+  </p>
+  <div class="cta-row rv" style="--d:240ms">
+    <a class="btn" href="https://github.com/Laplace-bit/GT-Office/releases" target="_blank" rel="noopener">
+      Download free
+      <span class="inner"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#FBF8F2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></span>
+    </a>
+    <a class="btn ghost" href="https://github.com/Laplace-bit/GT-Office" target="_blank" rel="noopener">View source</a>
+  </div>
+  <figure class="frame rv" style="--d:340ms">
+    <div class="core">
+      <div class="bar"><i></i><i></i><i></i><span>GT Office — Workspace · 3 agents running</span></div>
+      <img src="assets/agents-view.png" alt="GT Office agent workstation view showing multiple AI coding agents running in one desktop workspace" width="1060" height="660" loading="eager" decoding="async">
+    </div>
+  </figure>
+</header>
+
+<div class="anchors" role="list" aria-label="Key facts">
+  <div class="wrap">
+    <div class="cell rv"><b>3<sup>+</sup></b><span>platforms, one native window</span></div>
+    <div class="cell rv" style="--d:80ms"><b>100<sup>%</sup></b><span>official CLIs — zero wrapper</span></div>
+    <div class="cell rv" style="--d:160ms"><b>0</b><span>terminal tabs to babysit</span></div>
+    <div class="cell rv" style="--d:240ms"><b>3</b><span>channels to your phone</span></div>
+  </div>
+</div>
+<section id="features">
+  <div class="shell">
+    <p class="kicker rv">Why GT Office</p>
+    <h2 class="rv" style="--d:80ms">Terminal tabs were never a workspace.</h2>
+    <p class="lede rv" style="--d:160ms">
+      Scattered CLIs lose state, hide progress, and can't talk to each other.
+      GT Office keeps everything — sessions, files, Git, tasks — in one persistent, native surface.
+    </p>
+    <div class="bento">
+      <div class="card span4 rv">
+        <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></div>
+        <h3>Agent workstations</h3>
+        <p>Launch and manage multiple Claude Code, Codex CLI or Gemini CLI agents side by side. Sessions persist across restarts — create an agent once, it stays.</p>
+        <div class="shot"><img src="assets/agents-view.png" alt="Multiple AI agents managed in the GT Office workspace" width="720" height="440" loading="lazy" decoding="async"></div>
+      </div>
+      <div class="card span2 rv" style="--d:100ms">
+        <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 7.5C13 9 15 11 16.2 15.8"/></svg></div>
+        <h3>Agent-to-agent bus</h3>
+        <p>Built-in <code class="pill">gto</code> CLI lets agents dispatch tasks, share context and hand off work — automatically.</p>
+      </div>
+      <div class="card span2 rv">
+        <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.5L3 21l2-5.6A8.5 8.5 0 1 1 21 11.5Z"/></svg></div>
+        <h3>Channels</h3>
+        <p>Route agent output to Telegram, WeChat or Feishu. Instruct your agents from the train.</p>
+      </div>
+      <div class="card span2 rv" style="--d:100ms">
+        <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-5"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <h3>Task tracking</h3>
+        <p>Every dispatched task is tracked with status, replies and handover summaries.</p>
+      </div>
+      <div class="card span2 rv" style="--d:200ms">
+        <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.2 7.2l7.6 3.6M8.2 16.8l7.6-3.6"/></svg></div>
+        <h3>Git &amp; files</h3>
+        <p>Status, diffs, staging and commits across multi-repo workspaces — one click, no context switch.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gto">
+  <div class="shell">
+    <div class="gto-grid">
+      <div>
+        <p class="kicker rv">The differentiator</p>
+        <h2 class="rv" style="--d:80ms">Agents that work <em style="font-style:normal;color:var(--rust)">with</em> agents.</h2>
+        <p class="lede rv" style="--d:160ms">
+          While other desktop apps isolate every CLI in its own tab, GT Office ships
+          <strong>gto</strong> — a communication bus your agents use themselves.
+          Dispatch a refactor to Codex, have Claude review it, get a handover when it's done.
+        </p>
+      </div>
+      <div class="term rv" style="--d:120ms" role="img" aria-label="gto CLI example: dispatching a task between agents">
+        <div class="t-bar"><i></i><i></i><i></i></div>
+<span class="c-dim"># agent → agent, no human in the loop</span><br>
+<span class="c-rust">$</span> gto agent send-task --target-agent-id codex \<br>
+&nbsp;&nbsp;--title "Refactor auth module" --markdown task.md<br>
+<span class="c-ok">✔ task t_01 dispatched</span><br>
+<span class="c-rust">$</span> gto agent reply-status --task-id t_01 \<br>
+&nbsp;&nbsp;--detail "review passed, 12/12 tests green"<br>
+<span class="c-ok">✔ status delivered to claude-code</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="shell">
+    <div class="qs rv">
+      <p class="kicker" style="color:#E8845A">Quick start</p>
+      <h2>Running in two minutes.</h2>
+      <p class="lede">Grab a signed artifact from Releases, or build from source with Rust + Node 20+.</p>
+      <div class="qs-row">
+        <div class="qs-card">
+          <h4><b>01</b> Install binary</h4>
+          <pre><span class="c-dim"># macOS · Windows · Linux</span>
+github.com/Laplace-bit/GT-Office
+  → Releases → latest asset
+
+<span class="c-dim"># unsigned macOS build:</span>
+xattr -dr com.apple.quarantine \
+  "/Applications/GT Office.app"</pre>
+        </div>
+        <div class="qs-card">
+          <h4><b>02</b> Build from source</h4>
+          <pre>git clone https://github.com/
+  Laplace-bit/GT-Office.git
+cd GT-Office
+npm install
+npm run dev:tauri</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="faq">
+  <div class="shell">
+    <p class="kicker rv">FAQ</p>
+    <h2 class="rv" style="--d:80ms">Questions developers actually ask.</h2>
+    <div class="faq rv" style="--d:160ms">
+      <details>
+        <summary>Is GT Office a wrapper that limits what the CLIs can do?</summary>
+        <p>No. GT Office wraps the official Claude Code, Codex CLI and Gemini CLI binaries directly — no abstraction layer sits between you and the tool. Every flag, every permission prompt, every capability stays exactly as the CLI authors designed it.</p>
+      </details>
+      <details>
+        <summary>Which AI coding agents are supported?</summary>
+        <p>Claude Code, OpenAI Codex CLI and Gemini CLI work out of the box. Any terminal-first agent that runs in a shell can be attached to an agent workstation.</p>
+      </details>
+      <details>
+        <summary>How does agent-to-agent communication work?</summary>
+        <p>GT Office ships a companion CLI called <strong>gto</strong>. Agents call commands like <code>gto agent send-task</code> and <code>gto agent reply-status</code> to dispatch work, report progress and hand over results — a task bus with persistent threads, not copy-paste between terminals.</p>
+      </details>
+      <details>
+        <summary>Does it replace my terminal?</summary>
+        <p>No — it organizes it. Terminals are still real shells with your full PATH and dotfiles. GT Office adds persistence, workspace-scoped state, Git and file surfaces, and multi-agent orchestration on top.</p>
+      </details>
+      <details>
+        <summary>Is it free and open source?</summary>
+        <p>Yes. GT Office is Apache-2.0 licensed, built with Rust, React and Tauri. Releases are free to download on macOS, Windows and Linux.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="shell">
+    <div>
+      <div class="f-brand">GT&nbsp;Office<span>.</span></div>
+      <p>The native multi-agent workspace for developers who run AI coding agents every day.</p>
+    </div>
+    <nav aria-label="Footer">
+      <a href="https://github.com/Laplace-bit/GT-Office" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/Laplace-bit/GT-Office/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/Laplace-bit/GT-Office/discussions" target="_blank" rel="noopener">Discussions</a>
+      <a href="https://github.com/Laplace-bit/GT-Office/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+      <a href="https://github.com/Laplace-bit/GT-Office/blob/main/README_CN.md" target="_blank" rel="noopener">中文</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+    document.querySelectorAll('.rv').forEach(function (el) { io.observe(el); });
+  })();
+</script>
+</body>
+</html>
