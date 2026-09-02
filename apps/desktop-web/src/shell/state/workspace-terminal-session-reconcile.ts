@@ -17,6 +17,14 @@ export function reconcileWorkspaceTerminalRestoredSessions(
       return
     }
 
+    // A persisted snapshot can be stale (it is written debounced), so it may still
+    // reference a session that was relaunched after the last persist. Never let it
+    // downgrade the newer live binding: doing so drops the running agent's session
+    // mapping and replay state, which loses the agent on the next workspace switch.
+    if (currentRuntime.sessionId && currentRuntime.sessionId !== sessionId) {
+      return
+    }
+
     if (!liveSessionIds.has(sessionId)) {
       if (currentRuntime.sessionId === sessionId) {
         document.stationTerminals[terminal.stationId] = {
@@ -33,13 +41,6 @@ export function reconcileWorkspaceTerminalRestoredSessions(
       delete document.sessionVisibility[sessionId]
       delete document.restoreState[terminal.stationId]
       return
-    }
-
-    const previousSessionId = currentRuntime.sessionId
-    if (previousSessionId && previousSessionId !== sessionId) {
-      delete document.sessionStation[previousSessionId]
-      delete document.sessionSeq[previousSessionId]
-      delete document.sessionVisibility[previousSessionId]
     }
 
     document.stationTerminals[terminal.stationId] = {

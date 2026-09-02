@@ -18,17 +18,11 @@ function makeStation(id: string): AgentStation {
   return {
     id,
     name: `Station ${id}`,
-    roleId: id,
-    role: 'generator',
-    roleName: 'Generator',
-    roleWorkdirRel: '.gtoffice/roles/generator',
     agentWorkdirRel: '.gtoffice',
     customWorkdir: false,
     scope: 'station',
     tool: 'claude',
     toolKind: 'claude',
-    promptFileName: null,
-    promptFileRelativePath: null,
     terminalSessionId: '',
     state: 'idle',
     workspaceId: 'ws-1',
@@ -523,4 +517,78 @@ test('restore reconciliation clears cached stale bindings back to idle', () => {
   assert.equal(document.sessionSeq['session-stale'], undefined)
   assert.equal(document.sessionVisibility['session-stale'], undefined)
   assert.equal(document.restoreState['s1'], undefined)
+})
+
+test('restore reconciliation never downgrades a newer live binding to a stale snapshot session', () => {
+  const stations = [makeStation('s1')]
+  const document = createFreshDocument(stations)
+
+  // Snapshot on disk still references the previous session; the live in-memory
+  // binding already points at the relaunched session.
+  document.stationTerminals['s1'] = makeRunningRuntime('session-live')
+  document.sessionStation['session-live'] = 's1'
+  document.sessionSeq['session-live'] = 12
+  document.sessionVisibility['session-live'] = true
+  document.restoreState['s1'] = {
+    sessionId: 'session-live',
+    revision: 7,
+    state: { content: 'live output', cols: 80, rows: 24 },
+  }
+
+  reconcileWorkspaceTerminalRestoredSessions(
+    document,
+    [
+      {
+        stationId: 's1',
+        sessionId: 'session-stale',
+        shell: '/bin/zsh',
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
+        active: true,
+      },
+    ],
+    new Set(['session-stale']),
+  )
+
+  assert.equal(document.stationTerminals['s1'].sessionId, 'session-live')
+  assert.equal(document.sessionStation['session-live'], 's1')
+  assert.equal(document.sessionSeq['session-live'], 12)
+  assert.equal(document.sessionVisibility['session-live'], true)
+  assert.equal(document.restoreState['s1']?.sessionId, 'session-live')
+})
+
+test('restore reconciliation keeps a dead live binding when the snapshot holds a different session', () => {
+  // Even when the live binding may be dead (missed exit event), the snapshot must
+  // not silently overwrite it — session exit events / binding-invalid cleanup own
+  // that transition. This protects replay state from being deleted mid-switch.
+  const stations = [makeStation('s1')]
+  const document = createFreshDocument(stations)
+
+  document.stationTerminals['s1'] = makeRunningRuntime('session-live')
+  document.sessionStation['session-live'] = 's1'
+  document.sessionSeq['session-live'] = 3
+  document.restoreState['s1'] = {
+    sessionId: 'session-live',
+    revision: 2,
+    state: { content: 'live output', cols: 80, rows: 24 },
+  }
+
+  reconcileWorkspaceTerminalRestoredSessions(
+    document,
+    [
+      {
+        stationId: 's1',
+        sessionId: 'session-other',
+        shell: '/bin/zsh',
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
+        active: true,
+      },
+    ],
+    new Set(),
+  )
+
+  assert.equal(document.stationTerminals['s1'].sessionId, 'session-live')
+  assert.equal(document.sessionStation['session-live'], 's1')
+  assert.equal(document.restoreState['s1']?.sessionId, 'session-live')
 })

@@ -1843,9 +1843,19 @@ function StationXtermTerminalView({
           })
         const writeReplayContent = (content: string) => {
           replayGeneratedInputSuppressionDepth += 1
-          return writeTerminalChunk(content).finally(() => {
-            replayGeneratedInputSuppressionDepth = Math.max(0, replayGeneratedInputSuppressionDepth - 1)
-          })
+          // Replay fills the buffer far faster than a viewer can read; the smooth
+          // scroll animation would turn the catch-up into a visible scroll from the
+          // top of the transcript. Keep the viewport pinned (instant) during replay.
+          const previousSmoothScrollDuration = terminal.options.smoothScrollDuration
+          terminal.options.smoothScrollDuration = 0
+          return writeTerminalChunk(content)
+            .catch(() => {
+              // xterm write callbacks do not reject; guard anyway so the option is restored.
+            })
+            .finally(() => {
+              terminal.options.smoothScrollDuration = previousSmoothScrollDuration
+              replayGeneratedInputSuppressionDepth = Math.max(0, replayGeneratedInputSuppressionDepth - 1)
+            })
         }
         const submitFromXterm = () => {
           if (

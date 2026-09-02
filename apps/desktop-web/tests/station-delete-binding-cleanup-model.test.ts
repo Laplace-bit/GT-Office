@@ -30,7 +30,6 @@ function sampleAgent(id: string, name: string): AgentProfile {
     id,
     workspaceId: 'ws-1',
     name,
-    roleId: 'role-product',
     tool: 'codex',
     workdir: '.gtoffice/product',
     customWorkdir: false,
