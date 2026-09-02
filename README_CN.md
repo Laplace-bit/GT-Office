@@ -10,7 +10,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/Laplace-bit/GT-Office?color=green&label=下载)](https://github.com/Laplace-bit/GT-Office/releases)
 [![Stars](https://img.shields.io/github/stars/Laplace-bit/GT-Office?style=social)](https://github.com/Laplace-bit/GT-Office/stargazers)
 
-[下载 macOS 版](https://github.com/Laplace-bit/GT-Office/releases) · [下载 Windows 版](https://github.com/Laplace-bit/GT-Office/releases) · [下载 Linux 版](https://github.com/Laplace-bit/GT-Office/releases) · [文档](docs/README.md) · [English](README.md)
+[下载 macOS 版](https://github.com/Laplace-bit/GT-Office/releases) · [下载 Windows 版](https://github.com/Laplace-bit/GT-Office/releases) · [下载 Linux 版](https://github.com/Laplace-bit/GT-Office/releases) · [官网](https://laplace-bit.github.io/GT-Office/) · [文档](docs/README.md) · [English](README.md)
 
 </div>
 
